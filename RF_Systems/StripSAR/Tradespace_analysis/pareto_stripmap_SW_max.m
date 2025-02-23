@@ -8,7 +8,7 @@ clear; clc; close all
 %% Design Variables
 antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m] (assume SAR antenna is 0.5 cm thick)
 range_vec         = linspace(50e3, 200e3, 10);   % Range values [m]
-res_along_vec     = 10e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
+res_along_vec     = 5e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
 
 % Bandwidth vector (MHz converted to Hz)
 bandwidth_vec = [0.1,0.5, 1, 10, 50, 80]*1e6;  % [Hz]
