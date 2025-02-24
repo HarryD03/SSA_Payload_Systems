@@ -58,7 +58,7 @@ SC_X = kep2car(SC_kep, mu);
 sigma_az = deg2rad(sigma_ang);
 sigma_el = deg2rad(sigma_ang);
 
-P_sphere = diag([sigma_r^2 sigma_az^2 sigma_el^2 sigma_r^2]);                 %Covariance Matrix spherical coordinates
+P_sphere = diag([sigma_r^2 sigma_az^2 sigma_el^2]);                 %Covariance Matrix spherical coordinates
 R = [sind(elevation)*cosd(az), r*cosd(elevation)*cosd(az), -r*cosd(elevation)*sind(az);
      sind(elevation)*sind(az), r*cosd(elevation)*sind(az), -r*sind(elevation)*cosd(az);
      cosd(elevation), -r*sin(elevation), 0];                        %Spherical to cartesian rotation matrix

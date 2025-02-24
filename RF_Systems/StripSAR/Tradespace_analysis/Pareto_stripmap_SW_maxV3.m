@@ -1,31 +1,25 @@
 %% StripSAR Sizing: Pareto Front with Varying Power (Legend by p_peak)
 % Goal is to maximise range and minimise uncertainty.
-% TODO:
-%   Add coherent pulse integration: sarazgain function - to get processing
-%   gain and changes antenna dimensions
-clear; clc; close all
 
+clear; clc; close all;
 %% Design Variables
-antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m]
+antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m] (assume SAR antenna is 0.5 cm thick)
 range_vec         = linspace(50e3, 200e3, 10);   % Range values [m]
-res_along_vec     = 10e-2;                     % Azimuth resolution [m]
+res_along_vec     = 10e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.1 m)
 
 % Bandwidth vector (MHz converted to Hz)
 bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;  % [Hz]
 
 % Power vector [W]
-p_peak_vec = [10, 20, 50, 70, 80, 100];  
+p_peak_vec = [5,10, 20, 50, 70, 90];  
 Lp = length(p_peak_vec);
 
-% New: Relative velocity vector [m/s]
-v_rel_vec = [0.4, 7.5, 15]*1e3;  % 400, 7500, 15000 m/s
-Lv = length(v_rel_vec);
-
-%% Fixed system parameters (other than power and relative velocity)
-f = 4e9;  % Frequency [Hz]
+%% Fixed system parameters (other than power, which is now varied)
+f = 5e9;  % Frequency [Hz]
 
 %% Constants and Other Parameters
 c           = 3e8;              % Speed of light [m/s]
+v_rel       = 0.4e3;            % Relative velocity [m/s]
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
 T_sys       = 300;              % System noise temperature [K]
 receiver_noise_db = 2;          % [dB]
@@ -35,7 +29,7 @@ L_sys       = 10^(L_sys_db/10);
 eff_trans   = 1;                % Transmitter efficiency (assumed)
 lambda      = c/f;              % Wavelength [m]
 
-% Quantisation bits for data rate calculation
+% Quantization bits for data rate calculation
 quantisation_bits = 2;
 
 %% Desired Range Resolution and Pulse Compression Calculation
@@ -49,70 +43,101 @@ M  = length(res_along_vec);      % Azimuth resolution index (only one value here
 Lr = length(range_vec);          % Range index
 K  = length(bandwidth_vec);      % Bandwidth index
 
-%% Preallocate Arrays (6-D arrays: [antenna_width, range, res_along, bandwidth, power, v_rel])
-SW_all         = zeros(N, Lr, M, K, Lp, Lv);
-NESZ_all       = zeros(N, Lr, M, K, Lp, Lv);
-data_rate_all  = nan(N, Lr, M, K, Lp, Lv);  
-mass_all       = nan(N, Lr, M, K, Lp, Lv);
-SNR_dB_all     = nan(N, Lr, M, K, Lp, Lv);
-CR_all         = nan(N, Lr, M, K, Lp, Lv);
+%% Preallocate Arrays (5-D arrays: [antenna_width, range, res_along, bandwidth, power])
+SW_all         = zeros(N, Lr, M, K, Lp);
+NESZ_all       = zeros(N, Lr, M, K, Lp);
+data_rate_all  = nan(N, Lr, M, K, Lp);  % Data rate
+mass_all       = nan(N, Lr, M, K, Lp);  % Mass (if using a formula)
+SNR_dB_all     = nan(N, Lr, M, K, Lp);  % SNR in dB
+CR_all         = nan(N, Lr, M, K, Lp);  % Pulse Compression Ratio
 
 % Also preallocate storage for physical antenna area, bandwidth used, and peak power
-A_phys_all   = zeros(N, M);  % Depends only on antenna width and resolution
-bw_used_all  = zeros(N, Lr, M, K, Lp, Lv);
-p_peak_store = zeros(N, Lr, M, K, Lp, Lv);  % Transmit power for each design point
+A_phys_all   = zeros(N, M);              % Depends only on antenna width and resolution
+bw_used_all  = zeros(N, Lr, M, K, Lp);
+p_peak_store = zeros(N, Lr, M, K, Lp);     % To store the transmit power for each design point
 
-%% Compute Antenna Area (physical; does not depend on range, bandwidth, etc.)
+%% Compute Antenna Area (does not depend on range, bandwidth, or power)
+for j = 1:Lr
 for i = 1:N
     for m = 1:M
-        D_AT = 2 * res_along_vec(m);
-        A_phys_all(i,m) = antenna_width_vec(i) * D_AT;
+        D_AT = 2 * res_along_vec(m);  % Azimuth dimension [m]
+        A_phys_all(i,m) = antenna_width_vec(i) * D_AT;  % [m^2]
+        R_val = range_vec(j);
+        graz_ang = lambda/2*antenna_width_vec(i);
+        A_min = (4*v_rel*lambda*R_val)/c * tand(graz_ang);
+        if A_phys_all(i,m) < A_min
+             A_phys_all(i,m) = NaN;
+        end
     end
 end
-
-%% Main Loop: Loop Over Relative Velocity, Power, Bandwidth, etc.
-for v = 1:Lv
-    current_v_rel = v_rel_vec(v);
-    for l = 1:Lp
-        p_peak_current = p_peak_vec(l);
-        for k = 1:K
-            bw = bandwidth_vec(k);
-            t_pulse = 1/bw;           
-            Res_range = c*t_pulse/2;    
-            CR_required = t_pulse / T_min;  
-            for i = 1:N
-                for m = 1:M
-                    avgRes = (Res_range + res_along_vec(m)) / 2;
-                    for j = 1:Lr
-                        p_peak_store(i,j,m,k,l,v) = p_peak_current;
-                        R_val = range_vec(j);
-                        % Compute Swath Width (independent of v_rel)
-                        SW = lambda * R_val / antenna_width_vec(i);
-                        SW_all(i,j,m,k,l,v) = SW;
-                        PRF_max = 1 / (2*t_pulse + (2*SW)/c);
-                        t_swath = 2*SW/c;
-                        bw_used_all(i,j,m,k,l,v) = bw;
-                        D_AT = 2 * res_along_vec(m);
-                        PRF_min_local = 2*current_v_rel / D_AT;
-                        if PRF_max < PRF_min_local
-                            NESZ_all(i,j,m,k,l,v) = NaN;
-                            data_rate_all(i,j,m,k,l,v) = NaN;
-                            mass_all(i,j,m,k,l,v) = NaN;
-                            SNR_dB_all(i,j,m,k,l,v) = NaN;
-                            CR_all(i,j,m,k,l,v) = NaN;
-                        else
-                            duty  = t_pulse * PRF_max;
-                            P_avg = duty * p_peak_current;
-                            % Call to sarazgain (assumed to return azGain)
-                            [azGain] = sarazgain(R_val, lambda, current_v_rel, res_along_vec, PRF_max);
-                            NESZ_all(i,j,m,k,l,v) = 10*log10( ...
-                                (2*current_v_rel * (4*pi*R_val)^3 * boltz_const * T_sys * receiver_noise * L_sys) ...
-                                / (P_avg * azGain * (eff_trans * 4*pi * 0.7 * A_phys_all(i,m)/(lambda^2))^2 * lambda^3 * Res_range) );
-                            SNR_dB_all(i,j,m,k,l,v) = 10*log10(pi*(10e-2)^2) - NESZ_all(i,j,m,k,l,v);
-                            data_rate_all(i,j,m,k,l,v) = 2 * bw * quantisation_bits * t_swath * PRF_max * duty;
-                            mass_all(i,j,m,k,l,v) = 20.5044 * antenna_width_vec(i) * (2*res_along_vec(m));
-                            CR_all(i,j,m,k,l,v) = CR_required;
-                        end
+end
+%% Main Loop: Loop Over Power and Bandwidth Values as well
+for l = 1:Lp
+    p_peak_current = p_peak_vec(l);
+    for k = 1:K
+        bw = bandwidth_vec(k);
+        t_pulse = 1/bw;           % Transmitted pulse duration [s] for this bandwidth
+        Res_range = c*t_pulse/2;    % Uncompressed Range resolution [m]
+        
+        % Calculate the pulse compression ratio required:
+        % CR = transmitted pulse width / minimum pulse width needed for 10 cm resolution
+        CR_required = t_pulse / T_min;  
+        
+        for i = 1:N
+            for m = 1:M
+                % Compute average resolution for this (res_along, bw)
+                avgRes = (Res_range + res_along_vec(m)) / 2;
+                
+                % Store current p_peak for all range values at (i,m,k,l)
+                for j = 1:Lr
+                    p_peak_store(i,j,m,k,l) = p_peak_current;
+                end
+                
+                % For each range value:
+                for j = 1:Lr
+                    R_val = range_vec(j);
+                    
+                    % Compute Swath Width
+                    SW = lambda * R_val / antenna_width_vec(i);
+                    SW_all(i,j,m,k,l) = SW;
+                    
+                    % Compute PRF and swath time
+                    PRF_max = 1 / (2*t_pulse + (2*SW)/c);
+                    t_swath = 2*SW/c;
+                    
+                    bw_used_all(i,j,m,k,l) = bw;
+                    
+                    D_AT = 2 * res_along_vec(m);
+                    PRF_min_local = 2*v_rel / D_AT;
+                    
+                    if PRF_max < PRF_min_local
+                        NESZ_all(i,j,m,k,l) = NaN;
+                        data_rate_all(i,j,m,k,l) = NaN;
+                        mass_all(i,j,m,k,l) = NaN;
+                        SNR_dB_all(i,j,m,k,l) = NaN;
+                        CR_all(i,j,m,k,l) = NaN;
+                    else
+                        duty  = t_pulse * PRF_max;
+                        P_avg = duty * p_peak_current;
+                        
+                        % Call to sarazgain to obtain azimuth processing gain (azGain)
+                        % (Assuming a wrapper or custom function that returns azGain)
+                        [azGain] = sarazgain(R_val, lambda, v_rel, res_along_vec, PRF_max);
+                        
+                        % Incorporate the azimuth gain into the NESZ calculation.
+                        % Note: A_phys_all is the physical antenna area.
+                        NESZ_all(i,j,m,k,l) = 10*log10( ...
+                            (2*v_rel * (4*pi*R_val)^3 * boltz_const * T_sys * receiver_noise * L_sys) ...
+                            / (P_avg * azGain * (eff_trans * 4*pi * 0.7 * A_phys_all(i,m)/(lambda^2))^2 * lambda^3 * Res_range) );
+                        
+                        SNR_dB_all(i,j,m,k,l) = 10*log10(pi*(10e-2)^2) - NESZ_all(i,j,m,k,l);
+                        
+                        data_rate_all(i,j,m,k,l) = 2 * bw * quantisation_bits * t_swath * PRF_max * duty;
+                        
+                        mass_all(i,j,m,k,l) = 20.5044 * antenna_width_vec(i) * (2*res_along_vec(m));
+                        
+                        % Store the pulse compression ratio for this design point
+                        CR_all(i,j,m,k,l) = CR_required;
                     end
                 end
             end
@@ -120,24 +145,20 @@ for v = 1:Lv
     end
 end
 
-%% Flatten 6D Arrays to 1D Vectors
-numDesigns = N * Lr * M * K * Lp * Lv;
+%% Flatten 5D Arrays to 1D Vectors
+numDesigns = N * Lr * M * K * Lp;
 SW_vec       = reshape(SW_all,       numDesigns, 1);
 SNR_vec      = reshape(SNR_dB_all,    numDesigns, 1);
 dataRate_vec = reshape(data_rate_all, numDesigns, 1);
 mass_vec     = reshape(mass_all,     numDesigns, 1);
-Range_vec    = reshape(repmat(reshape(range_vec, [1,Lr]), [N,1,M,K,Lp,Lv]), numDesigns, 1);
+Range_vec    = reshape(repmat(reshape(range_vec, [1,Lr]), [N,1,M,K,Lp]), numDesigns, 1);
 bw_vec_store = reshape(bw_used_all,  numDesigns, 1);
-p_peak_vec_flat = reshape(p_peak_store, numDesigns, 1);  
-CR_vec       = reshape(CR_all, numDesigns, 1);
+p_peak_vec_flat = reshape(p_peak_store, numDesigns, 1);  % Flattened peak power
+CR_vec       = reshape(CR_all, numDesigns, 1);  % Flattened compression ratio
 
-antennaWidth_vecStore = reshape(repmat(reshape(antenna_width_vec, [N,1]), [1,Lr,M,K,Lp,Lv]), numDesigns, 1);
-resAlong_vecStore     = reshape(repmat(reshape(res_along_vec, [1,M]), [N,Lr,1,K,Lp,Lv]), numDesigns, 1);
+antennaWidth_vecStore = reshape(repmat(reshape(antenna_width_vec, [N,1]), [1,Lr,M,K,Lp]), numDesigns, 1);
+resAlong_vecStore     = reshape(repmat(reshape(res_along_vec, [1,M]), [N,Lr,1,K,Lp]), numDesigns, 1);
 antennaLength_vecStore = 2 * resAlong_vecStore;
-
-% Also flatten the relative velocity vector across the grid
-v_rel_array = repmat(reshape(v_rel_vec, [1, Lv]), [N, Lr, M, K, Lp]);
-v_rel_vec_flat = reshape(v_rel_array, numDesigns, 1);
 
 %% Compute SNR in Linear and the Uncertainty (sigma)
 SNR_linear = 10.^(SNR_vec/10);
@@ -148,8 +169,8 @@ feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5);
 
 %% Global Pareto Front Calculation (Swath Width vs. Uncertainty)
 % Objectives:
-%   1. Maximize Swath Width (minimize -SW)
-%   2. Minimize Uncertainty (sigma)
+%   Objective 1: maximize Swath Width -> minimize -Swath Width
+%   Objective 2: minimize uncertainty (sigma)
 obj1_all = -SW_vec(feasibleIdx);
 obj2_all = sigma(feasibleIdx);
 feasiblePoints_all = [obj1_all, obj2_all];
@@ -276,7 +297,7 @@ for ip = 1:nLevels
     hold off;
 end
 
-%% Figure 4: Group-Specific Pareto Points for Each p_peak Level (Peak Power vs. Swath Width)
+%% Figure 3: Group-Specific Pareto Points for Each p_peak Level (Peak Power vs. Swath Width)
 % This plot is similar to the original "Peak Power vs. Uncertainty" plot, but here
 % we replace range with swath width. For each power level, the Pareto-optimal swath width
 % values (from the swath width vs. uncertainty Pareto analysis) are plotted.
@@ -374,7 +395,6 @@ fprintf('Bandwidth                = %.2f MHz\n', found_bw_max/1e6);
 fprintf('Uncertainty (\x03C3)         = %.2f m\n', found_sigma_max);
 fprintf('Peak Power               = %.2f W\n', found_p_peak_max);
 fprintf('Required Pulse Compression Ratio = %.1f\n', found_CR_max);
-
 %% User Query: Find Design Data for a Given Swath Width and Uncertainty
 target_sw = 5000;    % e.g., 5000 m (5 km) target swath width
 target_sigma = 5;    % e.g., 5 m uncertainty

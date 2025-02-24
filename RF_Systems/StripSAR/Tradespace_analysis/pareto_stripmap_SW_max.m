@@ -1,20 +1,17 @@
 %% StripSAR Sizing: Pareto Front with Varying Power (Legend by p_peak)
 % Goal is to maximise range and minimise uncertainty.
-% TODO:
-%   Add coherent pulse integration: sarazgain function - to get processing
-%   gain and changes antenna dimensions
-clear; clc; close all
 
+clear; clc; close all;
 %% Design Variables
 antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m] (assume SAR antenna is 0.5 cm thick)
-range_vec         = linspace(50e3, 200e3, 10);   % Range values [m]
-res_along_vec     = 10e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
+range_vec         = linspace(50e3, 500e3, 20);   % Slant Range values [m]
+res_along_vec     = 8e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
 
 % Bandwidth vector (MHz converted to Hz)
-bandwidth_vec = [0.1,0.5, 1, 10, 50, 80]*1e6;  % [Hz]
+bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;  % [Hz]
 
 % Power vector [W]
-p_peak_vec = [10, 20, 50, 70, 80, 100];  
+p_peak_vec = [0.001,0.1, 1, 5, 10,20,35,50];  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
@@ -22,7 +19,7 @@ f = 4e9;  % Frequency [Hz]
 
 %% Constants and Other Parameters
 c           = 3e8;              % Speed of light [m/s]
-v_rel       = 0.4e3;            % Relative velocity [m/s]
+v_rel       = 7.5e3;            % Relative velocity [m/s] Assuming the platform velcoity is the relative velcoty between platofrm and target
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
 T_sys       = 300;              % System noise temperature [K]
 receiver_noise_db = 2;          % [dB]
@@ -60,13 +57,20 @@ bw_used_all  = zeros(N, Lr, M, K, Lp);
 p_peak_store = zeros(N, Lr, M, K, Lp);     % To store the transmit power for each design point
 
 %% Compute Antenna Area (does not depend on range, bandwidth, or power)
+for j = 1:Lr
 for i = 1:N
     for m = 1:M
         D_AT = 2 * res_along_vec(m);  % Azimuth dimension [m]
         A_phys_all(i,m) = antenna_width_vec(i) * D_AT;  % [m^2]
+        R_val = range_vec(j);
+        graz_ang = lambda/2*antenna_width_vec(i);
+        A_min = (4*v_rel*lambda*R_val)/c * tand(graz_ang);
+        if A_phys_all(i,m) < A_min
+             A_phys_all(i,m) = NaN;
+        end
     end
 end
-
+end
 %% Main Loop: Loop Over Power and Bandwidth Values as well
 for l = 1:Lp
     p_peak_current = p_peak_vec(l);
@@ -98,7 +102,7 @@ for l = 1:Lp
                     SW_all(i,j,m,k,l) = SW;
                     
                     % Compute PRF and swath time
-                    PRF_max = 1 / (2*t_pulse + (2*SW)/c);
+                    PRF_max = c/2*R_val;
                     t_swath = 2*SW/c;
                     
                     bw_used_all(i,j,m,k,l) = bw;
@@ -158,7 +162,13 @@ antennaLength_vecStore = 2 * resAlong_vecStore;
 
 %% Compute SNR in Linear and the Uncertainty (sigma)
 SNR_linear = 10.^(SNR_vec/10);
-sigma = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
+sigma_r = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
+beamwidth = lambda./(antenna_width_vec);            %Synethic Aperature beamwidth
+sigma_ang = beamwidth./sqrt(2.*SNR_linear);
+sigma = (sigma_r + sigma_ang)/2;                    %avg uncertanity
+
+FOV = asind((SW_vec/2)./Range_vec);                    %Half cone FOV
+Range_vec = Range_vec.*cosd(FOV);
 
 %% Define Feasible Designs
 feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5);

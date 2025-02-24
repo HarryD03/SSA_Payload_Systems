@@ -1,28 +1,25 @@
 %% StripSAR Sizing: Pareto Front with Varying Power (Legend by p_peak)
 % Goal is to maximise range and minimise uncertainty.
-% TODO:
-%   Add coherent pulse integration: sarazgain function - to get processing
-%   gain and changes antenna dimensions
-clear; close all; clc
 
+clear; clc; close all;
 %% Design Variables
-antenna_width_vec = linspace(0.1, 10, 10);     % Antenna widths [m] (assume SAR antenna is 0.5 cm thick)
-range_vec         = linspace(50e3, 200e3, 10);   % Range values [m]
-res_along_vec     = 10e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
+antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m] (assume SAR antenna is 0.5 cm thick)
+range_vec         = linspace(50e3, 500e3, 20);   % Slant Range values [m]
+res_along_vec     = 8e-2;                     % Azimuth resolution [m] (fixed, e.g., 0.2 m)
 
 % Bandwidth vector (MHz converted to Hz)
-bandwidth_vec = [0.1,0.5, 1, 10, 50, 80]*1e6;  % [Hz]
+bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;  % [Hz]
 
 % Power vector [W]
-p_peak_vec = [10, 20, 50, 70, 80, 100];  
+p_peak_vec = [0.001,0.1, 1, 5, 10,20,35,50];  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
-f = 5.5e9;  % Frequency [Hz]
+f = 4e9;  % Frequency [Hz]
 
 %% Constants and Other Parameters
 c           = 3e8;              % Speed of light [m/s]
-v_rel       = 7.5e3;            % Relative velocity [m/s]
+v_rel       = 7.5e3;            % Relative velocity [m/s] Assuming the platform velcoity is the relative velcoty between platofrm and target
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
 T_sys       = 300;              % System noise temperature [K]
 receiver_noise_db = 2;          % [dB]
@@ -60,13 +57,20 @@ bw_used_all  = zeros(N, Lr, M, K, Lp);
 p_peak_store = zeros(N, Lr, M, K, Lp);     % To store the transmit power for each design point
 
 %% Compute Antenna Area (does not depend on range, bandwidth, or power)
+for j = 1:Lr
 for i = 1:N
     for m = 1:M
         D_AT = 2 * res_along_vec(m);  % Azimuth dimension [m]
         A_phys_all(i,m) = antenna_width_vec(i) * D_AT;  % [m^2]
+        R_val = range_vec(j);
+        graz_ang = lambda/2*antenna_width_vec(i);
+        A_min = (4*v_rel*lambda*R_val)/c * tand(graz_ang);
+        if A_phys_all(i,m) < A_min
+             A_phys_all(i,m) = NaN;
+        end
     end
 end
-
+end
 %% Main Loop: Loop Over Power and Bandwidth Values as well
 for l = 1:Lp
     p_peak_current = p_peak_vec(l);
@@ -98,7 +102,7 @@ for l = 1:Lp
                     SW_all(i,j,m,k,l) = SW;
                     
                     % Compute PRF and swath time
-                    PRF_max = 1 / (2*t_pulse + (2*SW)/c);
+                    PRF_max = c/2*R_val;
                     t_swath = 2*SW/c;
                     
                     bw_used_all(i,j,m,k,l) = bw;
@@ -158,8 +162,13 @@ antennaLength_vecStore = 2 * resAlong_vecStore;
 
 %% Compute SNR in Linear and the Uncertainty (sigma)
 SNR_linear = 10.^(SNR_vec/10);
-sigma = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
+sigma_r = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
+beamwidth = lambda./(antenna_width_vec);            %Synethic Aperature beamwidth
+sigma_ang = beamwidth./sqrt(2.*SNR_linear);
+sigma = (sigma_r + sigma_ang)/2;                    %avg uncertanity
 
+FOV = atand(SW_vec./Range_vec)./2;                    %Half cone FOV
+Range_vec = Range_vec.*cosd(FOV);
 %% Define Feasible Designs
 feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5);
 
@@ -292,6 +301,7 @@ for ip = 1:nLevels
     grid on;
     hold off;
 end
+
 %% Figure 3: Group-Specific Pareto Points for Each p_peak Level (Peak Power vs. Swath Width)
 % This plot is similar to the original "Peak Power vs. Uncertainty" plot, but here
 % we replace range with swath width. For each power level, the Pareto-optimal swath width
@@ -357,21 +367,53 @@ title('Pareto Points across All p_{peak} Levels (Peak Power vs. Swath Width)');
 legend('Location', 'best');
 grid on;
 
+%% Maximum Swath Width Design Data
+% Find the design with the maximum swath width among the feasible designs.
+[max_sw, idx_local] = max(SW_vec(feasibleIdx));
+feasible_full_idx = find(feasibleIdx);
+idx_max = feasible_full_idx(idx_local);
 
-%% User Query: Find Design Data for a Given Range and Uncertainty
-target_SW = 100e3;    % e.g., 100 km [m]
-target_sigma = 5;        % e.g., 5 m
+found_sw_max          = SW_vec(idx_max)/1000;
+found_range_max       = Range_vec(idx_max);
+found_ant_width_max   = antennaWidth_vecStore(idx_max);
+found_res_along_max   = resAlong_vecStore(idx_max);
+found_ant_length_max  = antennaLength_vecStore(idx_max);
+found_SNR_dB_max      = SNR_vec(idx_max);
+found_data_rate_max   = dataRate_vec(idx_max);
+found_mass_max        = mass_vec(idx_max);
+found_bw_max          = bw_vec_store(idx_max);
+found_sigma_max       = sigma(idx_max);
+found_p_peak_max      = p_peak_vec_flat(idx_max);
+found_CR_max          = CR_vec(idx_max);  % Pulse Compression Ratio
 
-_error = abs(Range_vec(feasibleIdx) - target_SW);
+%% Display the Maximum Swath Width Design Data
+fprintf('\n=== MAXIMUM SWATH WIDTH DESIGN DATA ===\n');
+fprintf('Maximum Swath Width      = %.2f km\n', found_sw_max);
+fprintf('Found Range              = %.2f km\n', found_range_max/1000);
+fprintf('Antenna Width            = %.2f m\n', found_ant_width_max);
+fprintf('Along-track Resolution   = %.4f m\n', found_res_along_max);
+fprintf('Antenna Length (2*res_along) = %.4f m\n', found_ant_length_max);
+fprintf('SNR (dB)                 = %.2f dB\n', found_SNR_dB_max);
+fprintf('Data Rate                = %.2f bps\n', found_data_rate_max);
+fprintf('Mass                     = %.2f kg\n', found_mass_max);
+fprintf('Bandwidth                = %.2f MHz\n', found_bw_max/1e6);
+fprintf('Uncertainty (\x03C3)         = %.2f m\n', found_sigma_max);
+fprintf('Peak Power               = %.2f W\n', found_p_peak_max);
+fprintf('Required Pulse Compression Ratio = %.1f\n', found_CR_max);
+%% User Query: Find Design Data for a Given Swath Width and Uncertainty
+target_sw = 5000;    % e.g., 5000 m (5 km) target swath width
+target_sigma = 5;    % e.g., 5 m uncertainty
+
+sw_error = abs(SW_vec(feasibleIdx) - target_sw);
 sigma_error = abs(sigma(feasibleIdx) - target_sigma);
-total_error = range_error + sigma_error;
+total_error = sw_error + sigma_error;
 
 [~, idx_target_feasible] = min(total_error);
 feasible_full_idx = find(feasibleIdx);
 idx_target = feasible_full_idx(idx_target_feasible);
 
-found_range       = Range_vec(idx_target);
 found_sw          = SW_vec(idx_target);
+found_range       = Range_vec(idx_target);
 found_ant_width   = antennaWidth_vecStore(idx_target);
 found_res_along   = resAlong_vecStore(idx_target);
 found_ant_length  = antennaLength_vecStore(idx_target);
@@ -383,9 +425,9 @@ found_sigma       = sigma(idx_target);
 found_p_peak      = p_peak_vec_flat(idx_target);
 found_CR          = CR_vec(idx_target);  % Pulse Compression Ratio
 
-%% Display the User-Queried Results
-fprintf('\n=== USER-QUERIED DESIGN DATA ===\n');
-fprintf('Target Range             = %.2f km\n', target_SW/1000);
+%% Display the User-Queried Results (Swath Width Query)
+fprintf('\n=== USER-QUERIED DESIGN DATA (Swath Width Query) ===\n');
+fprintf('Target Swath Width       = %.2f m\n', target_sw);
 fprintf('Target Uncertainty       = %.2f m\n\n', target_sigma);
 fprintf('Found Range              = %.2f km\n', found_range/1000);
 fprintf('Found Swath Width        = %.2f m\n', found_sw);

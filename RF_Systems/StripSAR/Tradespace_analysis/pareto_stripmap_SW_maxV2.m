@@ -2,22 +2,22 @@
 % Goal is to maximise range and minimise uncertainty.
 % TODO:
 %   
-clear; clc
+clear; clc;
 
 %% Design Variables
-antenna_width_vec = linspace(0.1, 10, 20);     % Antenna widths [m] 
-range_vec         = linspace(50e3, 200e3, 10);   % Range values [m]
+antenna_width_vec = linspace(0.01, 10, 50);     % Antenna widths [m] 
+range_vec         = linspace(50e3, 200e3, 20);   % Range values [m]
 res_along_vec     = 10e-2;                     % Azimuth resolution [m]
 
 % Bandwidth vector (MHz converted to Hz)
-bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;  % [Hz]
+bandwidth_vec = linspace(0.01,100,20)*1e6;  % [Hz]
 
 % Power vector [W]
-p_peak_vec = [10, 20, 50, 70, 80, 100];  
+p_peak_vec = [5,10, 20, 50, 70,90];  
 Lp = length(p_peak_vec);
 
 % New: Relative velocity vector [m/s]
-v_rel_vec = [0.4, 7.5, 15]*1e3;  % 400, 7500, 15000 m/s
+v_rel_vec = [7.5]*1e3;  % 400, 7500, 15000 m/s           % When I change the velocity within the vector 
 Lv = length(v_rel_vec);
 
 %% Fixed system parameters (other than power and v_rel)
@@ -62,10 +62,26 @@ bw_used_all  = zeros(N, Lr, M, K, Lp, Lv);
 p_peak_store = zeros(N, Lr, M, K, Lp, Lv);  % Transmit power for each design point
 
 %% Compute Antenna Area (physical; independent of range, bandwidth, etc.)
-for i = 1:N
-    for m = 1:M
-        D_AT = 2 * res_along_vec(m);
-        A_phys_all(i,m) = antenna_width_vec(i) * D_AT;
+%% Compute Antenna Area (physical) with Dimensions: [antenna_width, range, res_along, v_rel]
+% This array will be used to check feasibility at each range and v_rel.
+A_phys_all = nan(N, Lr, M, Lv);
+for v = 1:Lv
+    current_v_rel = v_rel_vec(v);
+    for j = 1:Lr
+        R_val = range_vec(j);
+        for i = 1:N
+            for m = 1:M
+                D_AT = 2 * res_along_vec(m);
+                A_phys = antenna_width_vec(i) * D_AT;
+                graz_ang = lambda/2 * antenna_width_vec(i);
+                A_min = (4 * current_v_rel * lambda * R_val) / c * tand(graz_ang);
+                if A_phys < A_min
+                    A_phys_all(i,j,m,v) = NaN;
+                else
+                    A_phys_all(i,j,m,v) = A_phys;
+                end
+            end
+        end
     end
 end
 
@@ -85,10 +101,12 @@ for v = 1:Lv
                     for j = 1:Lr
                         p_peak_store(i,j,m,k,l,v) = p_peak_current;
                         R_val = range_vec(j);
+                        
                         % Compute Swath Width (independent of v_rel)
                         SW = lambda * R_val / antenna_width_vec(i);
                         SW_all(i,j,m,k,l,v) = SW;
                         PRF_max = 1 / (2*t_pulse + (2*SW)/c);
+                        
                         t_swath = 2*SW/c;
                         bw_used_all(i,j,m,k,l,v) = bw;
                         D_AT = 2 * res_along_vec(m);
@@ -104,9 +122,11 @@ for v = 1:Lv
                             P_avg = duty * p_peak_current;
                             % Call to sarazgain (assumed to return azGain)
                             [azGain] = sarazgain(R_val, lambda, current_v_rel, res_along_vec, PRF_max);
+                            
                             NESZ_all(i,j,m,k,l,v) = 10*log10( ...
                                 (2*current_v_rel * (4*pi*R_val)^3 * boltz_const * T_sys * receiver_noise * L_sys) ...
                                 / (P_avg * azGain * (eff_trans * 4*pi * 0.7 * A_phys_all(i,m)/(lambda^2))^2 * lambda^3 * Res_range) );
+
                             SNR_dB_all(i,j,m,k,l,v) = 10*log10(pi*(10e-2)^2) - NESZ_all(i,j,m,k,l,v);
                             data_rate_all(i,j,m,k,l,v) = 2 * bw * quantisation_bits * t_swath * PRF_max * duty;
                             mass_all(i,j,m,k,l,v) = 20.5044 * antenna_width_vec(i) * (2*res_along_vec(m));
@@ -260,8 +280,8 @@ fprintf('Peak Power               = %.2f W\n', found_p_peak_max);
 fprintf('Required Pulse Compression Ratio = %.1f\n', found_CR_max);
 
 %% User Query: Find Design Data for a Given Swath Width and Uncertainty
-target_sw = 5000;    % e.g., 5000 m (5 km) target swath width
-target_sigma = 5;    % e.g., 5 m uncertainty
+target_sw = 20e3;    % e.g., 5000 m (5 km) target swath width
+target_sigma = 10;    % e.g., 5 m uncertainty
 
 sw_error = abs(SW_vec(feasibleIdx) - target_sw);
 sigma_error = abs(sigma(feasibleIdx) - target_sigma);
