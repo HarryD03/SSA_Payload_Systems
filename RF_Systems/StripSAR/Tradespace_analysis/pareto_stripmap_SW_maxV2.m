@@ -17,7 +17,7 @@ p_peak_vec = [5,10, 20, 50, 70,90];
 Lp = length(p_peak_vec);
 
 % New: Relative velocity vector [m/s]
-v_rel_vec = [7.5]*1e3;  % 400, 7500, 15000 m/s           % When I change the velocity within the vector 
+v_rel_vec = [4]*1e3;  % 400, 7500, 15000 m/s           % When I change the velocity within the vector 
 Lv = length(v_rel_vec);
 
 %% Fixed system parameters (other than power and v_rel)
@@ -111,6 +111,7 @@ for v = 1:Lv
                         bw_used_all(i,j,m,k,l,v) = bw;
                         D_AT = 2 * res_along_vec(m);
                         PRF_min_local = 2*current_v_rel / D_AT;
+                       
                         if PRF_max < PRF_min_local
                             NESZ_all(i,j,m,k,l,v) = NaN;
                             data_rate_all(i,j,m,k,l,v) = NaN;

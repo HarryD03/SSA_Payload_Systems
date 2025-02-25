@@ -2,9 +2,6 @@
 % Used to define revisit time requirement
 % By Harry Dawson
 
-%TODO
-% Add radar velocity compoents in the conversion matrix 
-% 
 
 
 %Assumptionss:
@@ -27,7 +24,6 @@ i = 80;
 Om = 80;
 om = 0;
 theta = 0;
-v =
 
 %Choose maximim values for Best case - FOV boundary
 %Choose Minimum values for Worst Case - See "Robust initial orbit
@@ -39,8 +35,8 @@ az = 1;   %deg
 elevation = 1; % deg
 
 %Choice based on design choice
-sigma_r = 10e-3; %km range based measurements (range and Range-rate)
-sigma_ang = 0.1; %deg angle based measurements (Az, El and Az/EL rate)
+sigma_r = 5.3e-3; %km range based measurements (range and Range-rate)
+sigma_ang = 0.3; %deg angle based measurements (Az, El and Az/EL rate)
 
 %Spacecraft Cartesian Coordinates ECI
 %There will be some error assocaited with this TO ADD
@@ -84,6 +80,7 @@ P0 = [ 24287918.0736715,  5665435.69165342,  894967.886653782, -260.261998968652
       -260.261998968652, -19879.9603291687, -347.533001229772,  1.53503734807762, -0.00580176692199,  0.04990688410132;
        1843.15218222622,  247.507838264477,  64.0785106860803, -0.00580176692199,  0.14029757209040,  0.00226834102064;
        25.0611461380351, -643.710040075805, -7.14358443006258,  0.04990688410132,  0.00226834102064,  0.00244767655339]*10^-3; % Initial covariance matrix of state vector distribution
+
 % Position (km) and velocity (km/s) uncertainties
 tspan = [0 10*24*3600];                                %Time propagation scale
 tf = tspan(2);
