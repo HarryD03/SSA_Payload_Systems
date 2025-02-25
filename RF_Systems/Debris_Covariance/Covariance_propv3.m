@@ -92,7 +92,7 @@ initial_STM = eye(6);
 initial_conditions = [X0, reshape(initial_STM,1,36)];
 initial_conditions_cov = [X0, reshape(P0,1,36)];
 
-%% Simulator Loop 
+
 
 P_flat = reshape(P0,[],1);
 
@@ -111,7 +111,7 @@ final_cov = reshape(final_cov_flat, 6, 6);
 disp('Final Covariance Matrix:');
 disp(final_cov);
 
-%% Plot Covariance Growth Over Time
+
 Time_out_hrs = Time_out/3600; 
 figure;
 plot(Time_out_hrs, 3*sigma_x, 'r', 'LineWidth', 1.5); 
@@ -125,7 +125,7 @@ title('Covariance Growth Over Time');
 grid on;
 xlim([0 50])
 
-%% Plot Position vs. Time with ±3σ Uncertainty Envelopes    
+% Plot Position vs. Time with ±3σ Uncertainty Envelopes    
 figure;
 
 % Plot x-coordinate
