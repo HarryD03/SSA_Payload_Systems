@@ -13,20 +13,21 @@ end
 antenna_width_vec = linspace(0.01, 10, 20);     % Antenna widths [m]
 range_vec         = linspace(50e3, 200e3, 30);  % Slant range values [m]
 res_along_vec     = 10e-2;                      % Azimuth resolution [m]
-
+FOV_limit = 11.35; %FOV limit for Herrick Gibbs
+Power_limt = 27.5; %Peak Power limt
 % Bandwidth vector (MHz converted to Hz)
 bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;   % [Hz]
 
 % Peak Power vector [W]
-p_peak_vec = [0.1, 1, 5, 10, 20, 35, 50];  % watts
+p_peak_vec =  [1, 2.5, 5,7.5,10, 15, 20,30];  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
-f = 5e9;  % Frequency [Hz]
+f = 5e9;  % Frequency [Hz] based on ITU 
 
 %% Constants and Other Parameters
 c           = 7e8;              % Speed of light [m/s]
-v_rel       = 3e3;              % Relative velocity [m/s]
+v_rel       = 7e3;              % Relative velocity [m/s]
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
 T_sys       = 300;              % System noise temperature [K]
 receiver_noise_db = 2;          % [dB]
@@ -128,7 +129,7 @@ for l = 1:Lp
                         SNR_dB_all(i,j,m,k,l) = NaN;
                         CR_all(i,j,m,k,l) = NaN;
                     else
-                        prf = PRF_max;
+                        prf = PRF_min_local;
                         % In scanSAR, each subswath receives pulses only every Nsub-th pulse:
                         if Nsub > 1
                             duty = t_pulse * (prf / Nsub);
@@ -264,6 +265,7 @@ for ip = 1:nLevels
     scatter(group_sigma, group_FOV, 20, colors(ip,:), 'filled');
     hold on;
     scatter(group_sigma(groupParetoIdx), group_FOV(groupParetoIdx), 30, 'r', 'o');
+    yline(FOV_limit)
     xlabel('Uncertainty (\sigma) [m]');
     ylabel('FOV [deg]');
     title(sprintf('p_{peak} = %g W', unique_power(ip)));
@@ -459,39 +461,66 @@ for ip = 1:nLevels
     hold off;
 end
 
-%% New Section: Uncertainty vs. Peak Power at Maximum FOV Designs (p_peak >= 1W)
-% Ensure the feasible arrays for FOV, uncertainty, and peak power are defined:
-feasible_FOV_all   = FOV(feasibleIdx);
-feasible_sigma_all = sigma(feasibleIdx);
-feasible_pPeak_all = p_peak_vec_flat(feasibleIdx);
+%% New Section: Uncertainty vs. Peak Power for Various FOV-Dependent Designs (p_peak >= 1W)
+% Ensure the feasible arrays for uncertainty, range, FOV, and peak power are defined:
+feasible_sigma_all = sigma(feasibleIdx);           % Uncertainty [m]
+feasible_range_all = Range_vec(feasibleIdx);         % Range [m]
+feasible_FOV_all   = FOV(feasibleIdx);               % FOV [deg]
+feasible_pPeak_all = p_peak_vec_flat(feasibleIdx);   % Peak Power [W]
 
-% Get the unique peak power values (in W) from the feasible designs and filter to >= 1W
+% Get unique peak power values from the feasible designs (only >= 1W)
 unique_power_all = unique(feasible_pPeak_all);
 unique_power     = unique_power_all(unique_power_all >= 1);
 numLevels        = length(unique_power);
 
-% Preallocate arrays to store the maximum FOV and the associated uncertainty for each peak power level
-maxFOV_per_power       = zeros(numLevels,1);
-uncertainty_at_maxFOV  = zeros(numLevels,1);
+% Preallocate arrays to store the uncertainty values for each power level
+uncertainty_maxFOV  = zeros(numLevels,1);  % Uncertainty for design with max FOV
+uncertainty_100km   = nan(numLevels,1);    % Uncertainty for design with range closest to 100 km
+uncertainty_150km   = nan(numLevels,1);    % Uncertainty for design with range closest to 150 km
+uncertainty_200km   = nan(numLevels,1);    % Uncertainty for design with range closest to 200 km
 
-% Loop through each unique peak power value
+% Define target ranges in meters
+target_ranges = [100e3, 150e3, 200e3];
+
+% Loop over each unique peak power level
 for ip = 1:numLevels
-    % Select designs at the current peak power level
+    % Select designs with the current peak power value
     idx = (feasible_pPeak_all == unique_power(ip));
-    group_FOV   = feasible_FOV_all(idx);
     group_sigma = feasible_sigma_all(idx);
+    group_range = feasible_range_all(idx);
+    group_FOV   = feasible_FOV_all(idx);
     
-    % Find the design with the maximum FOV within this group
-    [maxFOV, maxIdx] = max(group_FOV);
-    maxFOV_per_power(ip)      = maxFOV;
-    uncertainty_at_maxFOV(ip) = group_sigma(maxIdx);
+    % 1. For the maximum FOV design: record its uncertainty
+    [~, maxIdx] = max(group_FOV);
+    uncertainty_maxFOV(ip) = group_sigma(maxIdx);
+    
+    % 2. For the design with range closest to 100 km: record its uncertainty
+    diff_100 = abs(group_range - target_ranges(1));
+    [~, idx100] = min(diff_100);
+    uncertainty_100km(ip) = group_sigma(idx100);
+    
+    % 3. For the design with range closest to 150 km: record its uncertainty
+    diff_150 = abs(group_range - target_ranges(2));
+    [~, idx150] = min(diff_150);
+    uncertainty_150km(ip) = group_sigma(idx150);
+    
+    % 4. For the design with range closest to 200 km: record its uncertainty
+    diff_200 = abs(group_range - target_ranges(3));
+    [~, idx200] = min(diff_200);
+    uncertainty_200km(ip) = group_sigma(idx200);
 end
 
-% Plot Uncertainty vs. Peak Power for the designs with maximum FOV (only for p_peak >= 1W)
+% Plot the results: Uncertainty (σ) versus Peak Power (p_peak)
 figure;
-plot(unique_power, uncertainty_at_maxFOV, 'bo-', 'LineWidth', 1.5, 'MarkerSize', 8);
+hold on;
+plot(unique_power, uncertainty_maxFOV, 'ko-', 'LineWidth', 1.5, 'MarkerSize', 8, 'DisplayName', 'Max FOV design');
+plot(unique_power, uncertainty_100km,  'ro-', 'LineWidth', 1.5, 'MarkerSize', 8, 'DisplayName', 'Design at 100 km');
+plot(unique_power, uncertainty_150km,  'bo-', 'LineWidth', 1.5, 'MarkerSize', 8, 'DisplayName', 'Design at 150 km');
+plot(unique_power, uncertainty_200km,  'go-', 'LineWidth', 1.5, 'MarkerSize', 8, 'DisplayName', 'Design at 200 km');
+xline(Power_limit)
+hold off;
 xlabel('Peak Power (W)');
 ylabel('Uncertainty (\sigma) [m]');
-title('Uncertainty vs. Peak Power at Maximum FOV Designs (p_{peak} \geq 1W)');
-grid on;
+title('Uncertainty vs. Peak Power for Various FOV-Dependent Designs (p_{peak} \geq 1W)');
+legend('show');
 grid on;

@@ -32,7 +32,7 @@ for idxN = 1:length(Nsub_list)
     %% --- Fixed system parameters ---
     f = 5e9;        % Frequency [Hz]
     c = 7e8;        % Speed of light [m/s]
-    v_rel = 3e3;    % Relative velocity [m/s]
+    v_rel = 7e3;    % Relative velocity [m/s]
     boltz_const = 1.380649e-23;  % Boltzmann constant [J/K]
     T_sys = 300;                 % System noise temp [K]
     receiver_noise_db = 2;       % [dB]
