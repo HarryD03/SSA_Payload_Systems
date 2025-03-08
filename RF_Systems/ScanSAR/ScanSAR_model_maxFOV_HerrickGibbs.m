@@ -1,10 +1,11 @@
 %%% Modified Code for scanSAR Mode (FOV vs. Uncertainty Pareto Front), now including FOV vs. Range
 clear; clc; close all;
-
+% Todo:
+% Write explaination for FOV, range and uncertanity as FoM 
 %% Choose operational mode: 'stripSAR' or 'scanSAR'
 operational_mode = 'scanSAR';
 if strcmpi(operational_mode, 'scanSAR')
-    Nsub = 11;  % number of subswaths in scanSAR mode (must be >= 1)
+    Nsub = 10;  % number of subswaths in scanSAR mode (must be >= 1)
 else
     Nsub = 1;
 end
@@ -13,13 +14,14 @@ end
 antenna_width_vec = linspace(0.01, 5, 20);     % Antenna widths [m]
 range_vec         = linspace(50e3, 200e3, 30);  % Slant range values [m]
 res_along_vec     = 10e-2;                      % Azimuth resolution [m]
-FOV_limit = 11.35; %FOV limit for Herrick Gibbs
-Power_limit = 27.5; %Peak Power limt
+FOV_limit = 5.5; %FOV limit for Herrick Gibbs
+Power_limit = 50*0.55; %Peak Power limt
+Power_target = 20; % 
 % Bandwidth vector (MHz converted to Hz)
-bandwidth_vec = [0.1, 0.5, 1, 10, 50, 80]*1e6;   % [Hz]
+bandwidth_vec = [0.5, 1, 10, 50, 80]*1e6;   % [Hz]
 
 % Peak Power vector [W]
-p_peak_vec =  [1, 2.5, 5,7.5,10, 15, 20,25,30];  % watts
+p_peak_vec =  25  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
@@ -29,16 +31,16 @@ f = 5e9;  % Frequency [Hz] based on ITU
 c           = 7e8;              % Speed of light [m/s]
 v_rel       = 7e3;              % Relative velocity [m/s]
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
-T_sys       = 300;              % System noise temperature [K]
-receiver_noise_db = 2;          % [dB]
+T_sys       = 300;              % System noise temperature [K] define (look at phased array paper) 
+receiver_noise_db = 2;          % [dB] define
 receiver_noise    = 10^(receiver_noise_db/10);
-L_sys_db    = 5;                % System losses [dB]
+L_sys_db    = 5;                % System losses [dB] define
 L_sys       = 10^(L_sys_db/10);
 eff_trans   = 1;                % Transmitter efficiency (assumed)
 lambda      = c/f;              % Wavelength [m]
 
 % Quantization bits for data rate calculation
-quantisation_bits = 2;
+quantisation_bits = 2;          % Where? define
 
 %% Desired Range Resolution and Pulse Compression Calculation
 desired_range_resolution = 0.1;         % 10 cm resolution
@@ -190,7 +192,7 @@ antennaLength_vecStore = 2 * resAlong_vecStore;
 %% Compute SNR in Linear and the Uncertainty (sigma)
 SNR_linear = 10.^(SNR_vec/10);
 sigma_r = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
-beamwidth = lambda./(antenna_width_vec);  % Synthetic aperture beamwidth
+beamwidth = lambda./(D_AT);  % Synthetic aperture beamwidth
 sigma_ang = beamwidth./sqrt(2.*SNR_linear);
 sigma = (sigma_r + sigma_ang)/2;          % average uncertainty
 
@@ -199,7 +201,7 @@ FOV = asind((SW_vec/2)./Range_vec);  % in degrees
 Range_vec = Range_vec .* cosd(FOV);
 
 %% Define Feasible Designs
-feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5);
+feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5); %define SNR limit 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Global Pareto Front Calculation (FOV vs. Uncertainty)
@@ -364,52 +366,57 @@ fprintf('Peak Power               = %.2f W\n', found_p_peak_max);
 fprintf('Required Pulse Compression Ratio = %.1f\n', found_CR_max);
 fprintf('Swath width                   = %.1f\n', found_sw_max);
 
-%% User Query: Find Design Data for a Given Swath Width and Uncertainty
-target_sw = 3.44e3;
-target_sigma = 12.917;
+%% User Query: Find Design Data for a Given FOV Angle and Range
+% Define target design parameters:
+target_FOV   = 11;     % Target FOV angle in degrees
+target_range = 50;  % Target range in km
 
-sw_error = abs(SW_vec(feasibleIdx) - target_sw);
-sigma_error = abs(sigma(feasibleIdx) - target_sigma);
-total_error = sw_error + sigma_error;
+% Calculate errors between the design and the targets:
+% (Note: Convert Range_vec from m to km for the error calculation)
+FOV_error   = abs(FOV(feasibleIdx) - target_FOV);
+range_error = abs((Range_vec(feasibleIdx)/1000) - target_range);
+total_error = FOV_error/target_FOV + range_error/target_range;
 [~, idx_target_feasible] = min(total_error);
 feasible_full_idx = find(feasibleIdx);
 idx_target = feasible_full_idx(idx_target_feasible);
 
-found_sw          = SW_vec(idx_target);
-found_range       = Range_vec(idx_target);
-found_ant_width   = antennaWidth_vecStore(idx_target);
-found_res_along   = resAlong_vecStore(idx_target);
-found_ant_length  = antennaLength_vecStore(idx_target);
-found_SNR_dB      = SNR_vec(idx_target);
-found_data_rate   = dataRate_vec(idx_target);
-found_mass        = mass_vec(idx_target);
-found_bw          = bw_vec_store(idx_target);
-found_sigma       = sigma(idx_target);
-found_p_peak      = p_peak_vec_flat(idx_target);
-found_CR          = CR_vec(idx_target);
-found_FOV         = FOV(idx_target);
-found_sigma_r     = sigma_r(idx_target);
-found_sigma_ang   = sigma_ang(idx_target);
+% Retrieve the design parameters at the target index:
+found_range      = Range_vec(idx_target);       % in meters
+found_FOV        = FOV(idx_target);               % in degrees
+found_ant_width  = antennaWidth_vecStore(idx_target);
+found_res_along  = resAlong_vecStore(idx_target);
+found_ant_length = antennaLength_vecStore(idx_target);
+found_SNR_dB     = SNR_vec(idx_target);
+found_data_rate  = dataRate_vec(idx_target);
+found_mass       = mass_vec(idx_target);
+found_bw         = bw_vec_store(idx_target);
+found_sigma      = sigma(idx_target);
+found_p_peak     = p_peak_vec_flat(idx_target);
+found_CR         = CR_vec(idx_target);
+found_sigma_r    = sigma_r(idx_target);
+found_sigma_ang  = sigma_ang(idx_target);
 
-fprintf('\n=== USER-QUERIED DESIGN DATA (Swath Width Query) ===\n');
-fprintf('Target Swath Width       = %.2f m\n', target_sw);
-fprintf('Target Uncertainty       = %.2f m\n\n', target_sigma);
-fprintf('Found Range              = %.2f km\n', found_range/1000);
-fprintf('Found Swath Width        = %.2f m\n', found_sw);
-fprintf('Antenna Width            = %.2f m\n', found_ant_width);
-fprintf('Along-track Resolution   = %.4f m\n', found_res_along);
+% Print the design data:
+fprintf('\n=== USER-QUERIED DESIGN DATA (FOV Angle and Range Query) ===\n');
+fprintf('Target FOV Angle       = %.2f deg\n', target_FOV);
+fprintf('Target Range           = %.2f km\n\n', target_range);
+fprintf('Found Range            = %.2f km\n', found_range/1000);
+fprintf('Found FOV Angle        = %.2f deg\n', found_FOV);
+fprintf('Antenna Width          = %.2f m\n', found_ant_width);
+fprintf('Along-track Resolution = %.4f m\n', found_res_along);
 fprintf('Antenna Length (2*res_along) = %.4f m\n', found_ant_length);
-fprintf('SNR (dB)                 = %.2f dB\n', found_SNR_dB);
-fprintf('Data Rate                = %.2f bps\n', found_data_rate);
-fprintf('Mass                     = %.2f kg\n', found_mass);
-fprintf('Bandwidth                = %.2f MHz\n', found_bw/1e6);
-fprintf('Swath Width              = %.2f m\n', found_sw);
-fprintf('Uncertainty (\x03C3)        = %.2f m\n', found_sigma);
-fprintf('Peak Power               = %.2f W\n', found_p_peak);
+fprintf('SNR (dB)               = %.2f dB\n', found_SNR_dB);
+fprintf('Data Rate              = %.2f bps\n', found_data_rate);
+fprintf('Mass                   = %.2f kg\n', found_mass);
+fprintf('Bandwidth              = %.2f MHz\n', found_bw/1e6);
+fprintf('Uncertainty (\x03C3)         = %.2f m\n', found_sigma);
+fprintf('Peak Power             = %.2f W\n', found_p_peak);
 fprintf('Required Pulse Compression Ratio = %.1f\n', found_CR);
-fprintf('Required Half Cone Angle = %.1f deg\n', found_FOV);
-fprintf('Required range uncertanity = %.1f m\n', found_sigma_r);
-fprintf('Required angular uncertanity = %.1f m\n', found_sigma_ang);
+fprintf('Range Uncertainty      = %.1f m\n', found_sigma_r);
+fprintf('Angular Uncertainty    = %.1f m\n', found_sigma_ang);
+
+%save design point 
+
 
 %% NEW SECTION: PLOTTING FOV vs. RANGE
 % We also do a Pareto analysis, since we want to maximize FOV and maximize Range.

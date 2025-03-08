@@ -54,20 +54,33 @@ SC_X = kep2car(SC_kep, mu);
 sigma_az = deg2rad(sigma_ang);
 sigma_el = deg2rad(sigma_ang);
 
-P_sphere = diag([sigma_r^2 sigma_az^2 sigma_el^2 sigma_r^2]);                 %Covariance Matrix spherical coordinates
+P_sphere = diag([sigma_r^2 sigma_az^2 sigma_el^2 sigma_r^2]);               %Covariance Matrix spherical coordinates
 R = [sind(elevation)*cosd(az), r*cosd(elevation)*cosd(az), -r*cosd(elevation)*sind(az);
      sind(elevation)*sind(az), r*cosd(elevation)*sind(az), -r*sind(elevation)*cosd(az);
-     cosd(elevation), -r*sin(elevation), 0];                        %Spherical to cartesian rotation matrix
-P_cart = R*P_sphere*R';                                             %LVLH measurement Covariance matrix
+     cosd(elevation), -r*sin(elevation), 0];                                %Spherical to cartesian rotation matrix
+P_cart = R*P_sphere*R';                                                     %LVLH measurement Covariance matrix
 
-%Coordinate rotation from spherical to LVLH
-x = r*sind(elevation)*sind(az);
+%Coordinate rotation from spherical to cart in LVLH
+x = r*cosd(elevation)*sind(az);
 y = r*sind(elevation)*sind(az);
 z = r*cosd(elevation);
-x_rth = [x y z];
+if vel
+    %Express velcoties in spherical to cartesian
+    dx_dt = r*(cosd(az)*cosd(elevation)*daz_dt - (sind(az)*sind(elevation)*delevation_dt)) + dr_dt*(sind(az)*cosd(elevation));
+    dy_dt = r*(sind(az)*cosd(elevation)*delevation_dt + (cosd(az)*sin(elevation)*daz_dt)) + dr_dt*(sind(az)*sind(elevation)*dr_dt);
+    dz_dt = dr_dt*(sind(az)*sind(elevation));
+    x_rth = [x y z];
+    v_rth = [dx_dt, dy_dt, dz_dt];
+    
+    %LVLH to ECI 
+    Debris_X = rth2car(x_rth,SC_X);
+    Debris_V = rth2car(v_rth,SC_X);
+    Debris_state = [Debris_X,Debris_V];
+else
+    x_rth = [x y z];
+    Debris_state = rth2car(x_rth,SC_X);     %LVLH to ECI 
+end
 
-%LVLH to ECI 
-Debris_X = rth2car(x_rth,SC_X);
 
 %% Debris Covariance and State Propogation
 % THis point onwards is validated with MC_Simulation from Github. 
@@ -81,91 +94,109 @@ P0 = [ 24287918.0736715,  5665435.69165342,  894967.886653782, -260.261998968652
        1843.15218222622,  247.507838264477,  64.0785106860803, -0.00580176692199,  0.14029757209040,  0.00226834102064;
        25.0611461380351, -643.710040075805, -7.14358443006258,  0.04990688410132,  0.00226834102064,  0.00244767655339]*10^-3; % Initial covariance matrix of state vector distribution
 
-% Position (km) and velocity (km/s) uncertainties
 tspan = [0 10*24*3600];                                %Time propagation scale
-tf = tspan(2);
-t = tspan(1);
-initial_STM = eye(6);
-% Covariance propogation 
-% PK+1 = Phi*PK*Phi';
 
-initial_conditions = [X0, reshape(initial_STM,1,36)];
-initial_conditions_cov = [X0, reshape(P0,1,36)];
+[final_state, final_cov, t_limit] = Covariance_Prop(X0, P0, tspan, error_limit);
 
+function [final_state, final_cov, t_limit] = Covariance_Prop(X0, P0, tspan, error_limit)
 
-
-P_flat = reshape(P0,[],1);
-
-options_ode45 = odeset('AbsTol',1e-6, 'RelTol',1e-9);
-%State Propogation + STM prop
-[Time_out,X_out] = ode45(@(t,x)eom_2BP_with_STM(t,x,mu),tspan,initial_conditions,options_ode45);
-%Covariance Prop + State Prop
-[Time_out,Cov_out] = ode45(@(t,x)cov_2BP_with_STM(t,x,mu),tspan,initial_conditions_cov,options_ode45);
-
-sigma_x = sqrt(Cov_out(:,7));
-sigma_y = sqrt(Cov_out(:,14));
-sigma_z = sqrt(Cov_out(:,21));
-
-final_cov_flat = Cov_out(end, 7:42);
-final_cov = reshape(final_cov_flat, 6, 6);
-disp('Final Covariance Matrix:');
-disp(final_cov);
-
-
-Time_out_hrs = Time_out/3600; 
-figure;
-plot(Time_out_hrs, 3*sigma_x, 'r', 'LineWidth', 1.5); 
-hold on;
-plot(Time_out_hrs, 3*sigma_y, 'g', 'LineWidth', 1.5);
-plot(Time_out_hrs, 3*sigma_z, 'b', 'LineWidth', 1.5);
-xlabel('Time [hrs]');
-ylabel('Position Uncertainty (km)');
-legend('\sigma_x', '\sigma_y', '\sigma_z');
-title('Covariance Growth Over Time');
-grid on;
-xlim([0 50])
-
-% Plot Position vs. Time with ±3σ Uncertainty Envelopes    
-figure;
-
-% Plot x-coordinate
-subplot(3,1,1);
-plot(Time_out_hrs, Cov_out(:,1), 'b', 'LineWidth', 1.5);
-hold on;
-plot(Time_out_hrs, Cov_out(:,1) + 3*sigma_x, 'r--', 'LineWidth', 1.0);
-plot(Time_out_hrs, Cov_out(:,1) - 3*sigma_x, 'r--', 'LineWidth', 1.0);
-xlabel('Time (hrs)');
-ylabel('X Position (km)');
-title('X Position with ±3σ Uncertainty');
-grid on;
-ylim([-1e5 1e5])
-xlim([0 50])
-% Plot y-coordinate
-subplot(3,1,2);
-plot(Time_out_hrs, Cov_out(:,2), 'b', 'LineWidth', 1.5);
-hold on;
-plot(Time_out_hrs, Cov_out(:,2) + 3*sigma_y, 'r--', 'LineWidth', 1.0);
-plot(Time_out_hrs, Cov_out(:,2) - 3*sigma_y, 'r--', 'LineWidth', 1.0);
-xlabel('Time (hrs)');
-ylabel('Y Position (km)');
-title('Y Position with ±3σ Uncertainty');
-grid on;
-ylim([-1e5 1e5])
-xlim([0 50])
-% Plot z-coordinate
-subplot(3,1,3);
-plot(Time_out_hrs, Cov_out(:,3), 'b', 'LineWidth', 1.5);
-hold on;
-plot(Time_out_hrs, Cov_out(:,3) + 3*sigma_z, 'r--', 'LineWidth', 1.0);
-plot(Time_out_hrs, Cov_out(:,3) - 3*sigma_z, 'r--', 'LineWidth', 1.0);
-xlabel('Time (hrs)');
-ylabel('Z Position (km)');
-title('Z Position with ±3σ Uncertainty');
-grid on;
-
-ylim([-1e5 1e5])
-xlim([0 50])
-
+    % Position (km) and velocity (km/s) uncertainties
+    tf = tspan(2);
+    t = tspan(1);
+    initial_STM = eye(6);
+    % Covariance propogation 
+    % PK+1 = Phi*PK*Phi';
+    
+    initial_conditions = [X0, reshape(initial_STM,1,36)];
+    initial_conditions_cov = [X0, reshape(P0,1,36)];
+    
+    
+    
+    P_flat = reshape(P0,[],1);
+    
+    options_ode45 = odeset('AbsTol',1e-6, 'RelTol',1e-9);
+    %State Propogation + STM prop
+    [Time_out,X_out] = ode45(@(t,x)eom_2BP_with_STM(t,x,mu),tspan,initial_conditions,options_ode45);
+    %Covariance Prop + State Prop
+    [Time_out,Cov_out] = ode45(@(t,x)cov_2BP_with_STM(t,x,mu),tspan,initial_conditions_cov,options_ode45);
+    
+    sigma_x = sqrt(Cov_out(:,7));
+    sigma_y = sqrt(Cov_out(:,14));
+    sigma_z = sqrt(Cov_out(:,21));
+    
+    %Find the revisit time
+    for i = 1:length(sigma_x(:,1))      %Cycle through the error arrays to see when the revisit time limit is reached
+        if (sigma_x(i,1) >= error_limit) || (sigma_y(i,1) >= error_limit)|| (sigma_z(i,1) >= error_limit)
+            t_limit = Time_out(i,1);    %Store the time the error is larger than the Optical FOV radius
+            t_limit_idx = i;
+            final_cov_flat = Cov_out(i, 7:42);
+            final_cov = reshape(final_cov_flat, 6, 6);
+            disp('Final Covariance Matrix:');
+            disp(final_cov);
+            final_state_flat = Cov_out(i,1:6);
+            final_state = reshape(final_state_flate,6,1);
+        end
+    end
+    
+    
+    
+    Time_out_hrs = Time_out/3600; 
+    figure;
+    plot(Time_out_hrs, 3*sigma_x, 'r', 'LineWidth', 1.5); 
+    hold on;
+    plot(Time_out_hrs, 3*sigma_y, 'g', 'LineWidth', 1.5);
+    plot(Time_out_hrs, 3*sigma_z, 'b', 'LineWidth', 1.5);
+    xlabel('Time [hrs]');
+    ylabel('Position Uncertainty (km)');
+    legend('\sigma_x', '\sigma_y', '\sigma_z');
+    title('Covariance Growth Over Time');
+    grid on;
+    xlim([0 50])
+    
+    % Plot Position vs. Time with ±3σ Uncertainty Envelopes    
+    figure;
+    
+    % Plot x-coordinate
+    subplot(3,1,1);
+    plot(Time_out_hrs, Cov_out(:,1), 'b', 'LineWidth', 1.5);
+    hold on;
+    plot(Time_out_hrs, Cov_out(:,1) + 3*sigma_x, 'r--', 'LineWidth', 1.0);
+    plot(Time_out_hrs, Cov_out(:,1) - 3*sigma_x, 'r--', 'LineWidth', 1.0);
+    xline(t_limit/3600, 'r:', 'LineWidth',1)
+    xlabel('Time (hrs)');
+    ylabel('X Position (km)');
+    title('X Position with ±3σ Uncertainty');
+    grid on;
+    ylim([-1e5 1e5])
+    xlim([0 50])
+    % Plot y-coordinate
+    subplot(3,1,2);
+    plot(Time_out_hrs, Cov_out(:,2), 'b', 'LineWidth', 1.5);
+    hold on;
+    plot(Time_out_hrs, Cov_out(:,2) + 3*sigma_y, 'r--', 'LineWidth', 1.0);
+    plot(Time_out_hrs, Cov_out(:,2) - 3*sigma_y, 'r--', 'LineWidth', 1.0);
+    xline(t_limit/3600, 'r:', 'LineWidth',1)
+    xlabel('Time (hrs)');
+    ylabel('Y Position (km)');
+    title('Y Position with ±3σ Uncertainty');
+    grid on;
+    ylim([-1e5 1e5])
+    xlim([0 50])
+    % Plot z-coordinate
+    subplot(3,1,3);
+    plot(Time_out_hrs, Cov_out(:,3), 'b', 'LineWidth', 1.5);
+    hold on;
+    plot(Time_out_hrs, Cov_out(:,3) + 3*sigma_z, 'r--', 'LineWidth', 1.0);
+    plot(Time_out_hrs, Cov_out(:,3) - 3*sigma_z, 'r--', 'LineWidth', 1.0);
+    xline(t_limit/3600, 'r:', 'LineWidth',1)
+    xlabel('Time (hrs)');
+    ylabel('Z Position (km)');
+    title('Z Position with ±3σ Uncertainty');
+    grid on;
+    
+    ylim([-1e5 1e5])
+    xlim([0 50])
+end
 
 function [dx_dt] = eom_2BP_with_STM(t,x,mu)
     
@@ -192,41 +223,6 @@ function [dx_dt] = eom_2BP_with_STM(t,x,mu)
 
 end
 
-function dXdt = cov_2BP_with_STM(t, X, mu)
-    % X is assumed to contain [state (6); covariance (flattened 36 elements)]
-    % Extract the state and covariance matrix
-    state = X(1:6);
-    P = reshape(X(7:42), 6, 6);
-    
-    % Compute the state derivative (position and velocity)
-    r = state(1:3);
-    rx = r(1);
-    ry = r(2);
-    rz = r(3);
-    v = state(4:6);
-    r_norm = norm(r);
-    drdt = v;
-    dvdt = -mu * r / r_norm^3;
-    
-    coef1 = 3*mu/(2*r_norm^5);
-    coef2 = mu/(2*r_norm^3);
-    
-    % Build the system matrix A (Jacobian)
-    A_21 = [coef1*rx^2 - coef2, coef1*rx*ry, coef1*rx*rz;
-            coef1*rx*ry, coef1*ry^2 - coef2, coef1*ry*rz;
-            coef1*rx*rz, coef1*ry*rz, coef1*rz^2-coef1];
-
-    A = [zeros(3), eye(3); A_21, zeros(3)];
-    
-    % Compute the derivative of the covariance matrix
-    dPdt = A * P + P * A';
-    
-    % Flatten dPdt to a vector
-    dPdt_flat = reshape(dPdt, 36, 1);
-    
-    % Construct the derivative of the complete state
-    dXdt = [drdt; dvdt; dPdt_flat];
-end
 
 function x_car = rth2car(x_rth,s_car)
 
@@ -288,7 +284,7 @@ s = s_car(:);
 r = s(1:3);
 v = s(4:6);
 r_ = r/norm(r);
-h = crossFast(r,v);
+h = cross(r,v);
 h_ = h/norm(h);
 t_ = crossFast(h_,r_);
 

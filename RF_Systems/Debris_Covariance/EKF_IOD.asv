@@ -1,0 +1,53 @@
+%% EKF Test Function for IOD using Herrick Gibbs then EKF 
+% Assume pure EKF code
+
+function [X_final, P_final] = EKF_IOD(X_0, P_0,Z,t)
+%Purpose: Reduce the Uncertanity of State through EKF so can revisit later
+
+%X_0 : [6x1] Initial position and Velocity in the ECI Frame [m]
+%P_0 : [6x6] The intial covariance matrix for the group of measurements [m]
+%Z   : [6xN] Debris State measurements post herrickGibbs estimation
+%t   : [1xN] timestamps of the measurement epochs [s]
+
+Q = zeros(6);           %Process Noise
+
+%Initialise state and covariance with inputs
+X = X_0;                % initial state
+P = P_0;                % covariance
+N = length(t);          % Number of effective measurements post herrick gibbs
+dt = mean(diff(t));     % Find the average difference between 
+
+%Kalman Loop
+for i = 1:N
+    % Prediction step 
+    tspan = [0 dt];
+    [t_out, X_out] = ode45(@two_body, tspan, X, options);   %Predict state to next measurement  
+    X_pred = X_out(end,:)';
+
+    %Propagate Covriance Matrix
+    phi0 = eye(6);                      % initial STM is the identity matrix
+    phi0_flat = reshape(phi0, 36, 1);  % flatten the matrix for ODE integration
+    [~, phi_out] = ode45(@(t,phi) dstmdt(t, phi, X), tspan, phi0_flat, options); %predict covariance for next timestep
+    phi = reshape(phi_out(end,:), 6, 6);  % reshape back to 6x6
+
+    P_pred = phi*P*phi' + Q;    %Covariance prediction
+
+    %Measurement Update Step
+    %Convert Measurement into Cartesian through measurement Matrix H then
+    %find the residual between the predicted step and the measurements
+    H = eye(6);     %Assume the measurements Z are in ECI cartesian
+    y = Z(:,i) - X_pred;    %Kalman residual
+
+    %Compute Kalman Gain
+    K = P_pred * H' / (H * P_pred * H' + R);
+
+    %Update Step with residual
+    X = X_pred + K*y;
+    P = (eye(6) - K *H)* P_pred;
+end
+
+%Return Final state and covariance after Kalman filter
+X_final = X;
+P_final = P;
+
+end

@@ -1,0 +1,298 @@
+%% Main IOD script: Take Measurements a Propagate forward for a revisit time
+clear; clc; close all
+%Purpose and Methodology: 
+% 1) Input SAR sizing/uncertanity parameters
+% 2) Conducts coordinate transformations from spherical LVLH to Cartesian
+% ECI
+% 3b) If not Herricks Gibbs; Assume the angle rate can be extracted by
+% finite differences (verified)
+% 4) Pass Measurement Uncertanity through EKF to get Final measurement
+% uncertanity/covariance (not verified)
+% 5) Estimate the revisit time required based on the Projected Area of the
+% Optical Instrument and covariance propagation (verified)
+
+%% Constant 
+mu = 3.986e5; % Earth's gravitational parameter (km^3/s^2)
+Re = 6371;      %[km]
+% SC parameters TBC 
+h = 590;%km
+e = 0;
+i = 90;
+Om = 90;
+om = 0;
+theta = 0;
+c = 3e8;
+f = 5e9;
+lambda = c/f;
+SC_kep= [Re + h, e, deg2rad(i), deg2rad(Om), deg2rad(om), deg2rad(theta)]; % [a e i Om om theta]
+
+%% SAR sizing/uncertanity parameters [Herrick-Gibbs 1 satellite] (inputs)
+
+v_rel = 7e3;            % Maximum Relative Velocity of the Debris for this design 
+FOV = 11;               % Half cone FOV [deg]
+Range_max = 50;         % [km]
+Optical_SW = 100;       % [km] The optical Swath width TBD
+
+%Angle Errors at design point
+erange = 30.7e-3;        % Range Error [km]
+eangle = deg2rad(0.42);           % Angle error [Degrees]
+erange_rate = 0.005e-3;
+ediff = 0.01;
+eaz_rate = sqrt(2*(eangle^2));  %Finite difference error (taylor, introduction to error analysis)
+eel_rate = eaz_rate;
+%% Precompute Range, Az, El for verification
+
+SW_max = 2*Range_max*tand(FOV);   %Half cone swath width
+t_swath = 1e-3;                 %The time between pulses limits the number of data points
+
+t_total = SW_max/v_rel;        % Timespan in view
+N = floor(t_total/t_swath);      % Number of data points 
+dt = t_swath;                    % The difference between points is roughly the integration time of a 'scene'
+time = linspace(0,t_total,N);
+%% Generate orbit data that passess through FOV
+
+% Define Debris 
+h = 630;
+e = 0;
+i = 90; 
+RAAN = 90;
+w = 0;
+f0 = 0; 
+tspan = 0:1e-3:2;
+Debris_kep = [Re+h,e,deg2rad(i),deg2rad(RAAN), deg2rad(w),deg2rad(f0)];
+[SC_rv,SC_t] = Debris_Propagtor(SC_kep,tspan);
+[Debris_rv, Debris_t]  = Debris_Propagtor(Debris_kep,tspan);
+
+
+%Define the Debris position relative to the satellite
+Debris_r = Debris_rv(:,1:3);
+Debris_v = Debris_rv(:,4:6);
+SC_r = SC_rv(:,1:3);                
+SC_v = SC_rv(:,4:6);                
+
+%Convert ECI to LVLH and gate datapoints 
+
+for i = 1:length(Debris_r(:,1))
+    [Debris_dr_LVLH, Debris_dv_LVLH] = rotate_ECI2LVLH(Debris_r(i,:)', Debris_v(i,:)', SC_r(i,:)', SC_v(i,:)');
+    Debris_state_LVLH(i,:) = [Debris_dr_LVLH;Debris_dv_LVLH];
+    %Convert to spherical LVLH 
+    [Debris_state_LVLH_spherical(i,:)] = CartLVLH2SphLVLH(Debris_state_LVLH(i,:));
+
+    %Assess if the Range is <50km and the az<11 deg and the el>15 deg
+    if Debris_state_LVLH_spherical(i,1) > 50
+        Debris_state_LVLH_spherical(i,:) = NaN;
+    end   
+    %Assess if Debris is in Azimuth FOV
+    if (deg2rad(-11) > Debris_state_LVLH_spherical(i,2)) || (Debris_state_LVLH_spherical(i,2) > deg2rad(11))
+        Debris_state_LVLH_spherical(i,:) = NaN;
+    end
+    %Assess if the Debris is in Elevation FOV
+    if (deg2rad(-15) > Debris_state_LVLH_spherical(i,3)) || (Debris_state_LVLH_spherical(i,3) > deg2rad(15))
+        Debris_state_LVLH_spherical(i,:) = NaN;
+    end 
+end
+
+
+%The non NaNs have entered the sensor view, simulate a streak observable by the radar system 
+%A set of points [Range, Az, El] and the range rate through doppler shift
+%Therefore remove az rate and el rate as that cant be measured.
+
+Debris_state_LVLH_spherical_Measurable = Debris_state_LVLH_spherical;
+Debris_state_LVLH_spherical_Measurable(:,5) = NaN;
+Debris_state_LVLH_spherical_Measurable(:,6) = NaN;
+Az = Debris_state_LVLH_spherical_Measurable(:,2);
+El = Debris_state_LVLH_spherical_Measurable(:,3);
+
+%Conduct finite differences between percieved points within 'image'
+Az_rate = numerical_derivative(Az, dt);
+El_rate = numerical_derivative(El, dt);
+Debris_state_LVLH_spherical_Measurable(:,5) = Az_rate;
+Debris_state_LVLH_spherical_Measurable(:,6) = El_rate;
+
+
+Debris_error_LVLH_spherical = [erange eangle eangle erange_rate eaz_rate eel_rate];
+
+%Kalman Filter requires cartesian measurements so convert from spherical to
+%cartesian -> keep LVLH
+Debris_state_LVLH_est = zeros(1,6);
+for i = 1:length(Debris_state_LVLH_spherical_Measurable(:,1))
+     [Debris_state_LVLH_est(i,:), Debris_error_LVLH(:,:,i)] = SphLVLH2CartLVLH(Debris_state_LVLH_spherical_Measurable(i,:), Debris_error_LVLH_spherical(1,:));
+end
+
+x0 = Debris_state_LVLH(1,:);                                %Require Cartesian LVLH
+P0 = Debris_error_LVLH(:,:,1);                              %Require Cartesian LVLH
+Debris_state_LVLH_spherical_Measurable_EKF = Debris_state_LVLH_spherical_Measurable(:,1:4); 
+measurements = Debris_state_LVLH_spherical_Measurable_EKF;      %Require Spherical LVLH
+t = Debris_t;
+
+[X_hist, P_hist] = EKF_IOD(x0, P0, measurements, t);
+
+%% Plots to determine "Optimal" number of observations
+
+%We want the minimum number of observations as that means the debris doesnt
+%need to linger in the FOV for as long
+%But We want the maximum revisit time so mission don't kill me
+
+%so we want to pick the point before deminishing returns set in
+
+%Plot the number of observations vs covariance Shrinkage, select number of observations.
+%Min Time in FOV = scene time * number of observations 
+
+%Extract the 
+% Assume covHistory is your 6x6xN covariance history variable
+N = size(P_hist, 3);  % Number of observations
+
+% Preallocate an array to store 3*sigma for each state over time
+threeSigma = zeros(6, N);
+
+% Compute 3-sigma values for each observation
+for k = 1:N
+    % Extract the 6x6 covariance matrix at iteration k
+    P = P_hist(:,:,k);
+    
+    % Compute the standard deviation (square root of diagonal variances)
+    sigma = sqrt(diag(P));
+    
+    % Multiply by 3 to get 3-sigma values
+    threeSigma(:, k) = 3 * sigma;
+end
+
+% Create a figure with 6 subplots, one for each state
+figure;
+for state = 1:6
+    subplot(3, 2, state); % 3 rows and 2 columns layout
+    plot(1:N, threeSigma(state,:), 'LineWidth', 1.5);
+    xlabel('Observation Number');
+    ylabel(sprintf('3σ for State %d', state));
+    title(sprintf('State %d', state));
+    xlim()
+    grid on;
+end
+
+%Min Time in FOV = scene time * number of observations 
+
+
+%% Propagate Covariance to get revisit time
+%Plot revisit time vs number of observations
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+% Generate a random straight line across a rectangular area in LVLH angles
+AzStart = -FOV + 2*FOV*rand();   % Random azimuth start in [-FOV, +FOV]
+AzEnd   = -FOV + 2*FOV*rand();   % Random azimuth end   in [-FOV, +FOV]
+ElStart = 0 + FOV*rand();        % Random elevation start in [0, FOV]
+ElEnd   = 0 + FOV*rand();        % Random elevation end   in [0, FOV]
+
+% Pre-allocate space
+Range = zeros(1,N);
+Az    = zeros(1,N);
+El    = zeros(1,N);
+
+%Position Variables 
+
+for i = 1:N
+    % Range fixed at Range_max
+    Range(i) = Range_max;
+ 
+    % Linearly interpolate Az and El along a “random” line
+    Az(i) = AzStart + (AzEnd - AzStart)*(i-1)/(N-1);
+    El(i) = ElStart + (ElEnd - ElStart)*(i-1)/(N-1);
+end
+
+%Velocity variables 
+
+doppler_freq = speed2dop(v_rel,lambda); % For a circular orbit it will be constant
+% HOW TO CALCULATE THE RANGE RATE for an arbitary arc
+    %Find the doppler shift (worst case?)
+    %Find the range rate range_rate = dep2speed(doppler_freq,lambda);
+
+
+%Angle rates are estimated through numerical differentiation around
+%central point 
+
+az_rate = numerical_derivative(Az, dt);
+el_rate = numerical_derivative(El, dt);
+
+
+% Now construct the state in spherical LVLH coordinates
+state_spherical = [Range; Az; El; range_rate; az_rate; el_rate];
+error_spherical = [erange; eangle; eangle; erange_rate; eaz_rate; eel_rate];
+
+
+%coordinate transform from spherical LVLH to cartesian ECI (state).
+%Covariance still in LVLH, so that the sigma's represent the error ellipsoid
+
+%Prepare SC cartesian coordinates for conversion 
+Debris_state = zeros(3,length(state_spherical(1,:)));
+[SC_X] = kep2car(SC_kep,mu);
+t = 0;
+
+for i = 1:length(state_spherical(1,:))
+    [Debris_state(:,i), Debris_Error] = SphericalLVLH2cartECI(state_spherical(:,i),error_spherical, SC_rv(i,:), 1);
+    Debris_time(:,i) = t + dt;
+    t = Debris_time(:,i);
+end
+% %% Conduct Herrick Gibbs Orbit determination 
+% % For groups of three observations to get floor(N/3) velocity vectors
+% 
+% X = floor(N/3);                             %Number of Herrick Gibbs triplets
+% Debris_full_state = zeros(6,X);
+% t_full_state = zeros(1,X);
+% t = 0;
+% for i = 1:X                                 %For the number of herrick gibbs triplets
+%     t = t + 2*dt;
+% 
+%     r1 = Debris_state(1:3,i);
+%     r2 = Debris_state(1:3,i+1);
+%     r3 = Debris_state(1:3,i+2);
+%     t1 = Debris_time(1,i);
+%     t2 = Debris_time(1,i+1);
+%     t3 = Debris_time(1,i+2);
+%     [v2] = herrickgibbs(r1, r2, r3, t1, t2, t3, mu);   
+% 
+%     Debris_full_state(:,i) = [r2;v2];            %Save the outcome of the Herrick Gibbs orbit determination to the full debris state vector
+%     t_full_state(:,i) = t;                        %Save the timestamp for the EKF_IOD                        
+% end
+% Conclusion -> Herrick Gibbs fails
+%% If not Herrick Gibbs find the interpolated state through doppler shift
+
+
+
+
+%% Pass the full state vectors to an EKF to reduce the uncertanity of measurements 
+
+%If Herricks Gibbs has been completed the error is 9e-2 kms-1 https://oaktrust.library.tamu.edu/server/api/core/bitstreams/7c6e9e44-cd95-4f99-accd-bd6f7cea9999/content
+Herrick_Gibbs_error = diag([9e-2, 9e-2, 9e-2]);
+
+
+
+x0 = Debris_full_state(:,1);            %First guess the initial state as the first measurement
+P0 = [Debris_Error zeros(3,3); zeros(3,3) Herrick_Gibbs_error];                      %Take initial covariance Matrix as the Measurement matrix
+measurements = Debris_full_state;
+t = t_full_state;                       %Measurement timestamps
+
+[X_final, P_final] = EKF_IOD(x0, P0, measurements, t);
+
+%% Propagate Covariance through time till error limit
+mu = 3.986e14;
+tspan = [0 10*24*3600];            %Time propagation scale
+P = P_final;                       %Covariance Matrix as soon as the debris leaves the FOV
+x0 = X_final;                      %Debris state as soon as leaving FOV
+
+
+[Revisit_state, Revisit_cov, Revisit_time] = Covariance_Prop(x0, P, tspan, Optical_SW);
+
+
+

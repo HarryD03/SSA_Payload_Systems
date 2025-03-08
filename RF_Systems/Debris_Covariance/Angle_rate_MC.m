@@ -1,15 +1,17 @@
 %% GOAL: Estimate the Error in angle rate estimates through a Monte Carlo Simulation
+% Monte Carlo gives 'true values' 
 clc; clear; close all
 orbit = 100;                %Number of different Orbits/Debris
 MeasurementNoise = 0;       %Measurment noise.
 tspan = [0 90*60];          %Propogation time - one orbit
 dt = 10;                    %Time difference for Simulation - pulse width for chosen design? 
+FOV = 11;                   %Half cone field of view
 monteCarloFiniteDiffDemo(orbit,MeasurementNoise,tspan,dt)            %Call Monte Carlo Simulation
 
 
 
 
-function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
+function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt,FOV)
     % monteCarloFiniteDiffDemo
     % ------------------------------------------------
     % Monte Carlo to estimate the finite-difference error
@@ -18,7 +20,7 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
     % in [80,100] degrees.  A radar "station" is fixed
     % at 600 km altitude, range limit 50 km -> TBD.
     %
-    % ByHarry Dawson, 25/02/2025
+    % By Harry Dawson, 25/02/2025
 
     % Earth/radar constants
     RE = 6378.0;                    % Earth radius [km]
@@ -28,7 +30,17 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
     
     % Radar "station" fixed in ECI at some point on x-axis for simplicity
     %    radius = Earth radius + 600 km
-    radarPosECI = [RE + radarAltitude; 0; 0];  % [x, y, z] km
+
+    % SC parameters TBC 
+    h = 590;%km
+    e = 0;
+    i = 80;
+    Om = 80;
+    om = 0;
+    theta = 0;
+
+   
+    radarPosECI = coe2rv(RE + h, e, deg2rad(i), deg2rad(Om), deg2rad(om), deg2rad(theta),muEarth);  % [x, y, z] km
     
     % We will collect FD errors over ALL random orbits/time steps
     azRateErrors = [];
@@ -41,9 +53,9 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
     for n = 1:numOrbits
         % Generate random orbit within constraints
         %  Altitude ~ 600--800 km => a ~ (RE+600) -- (RE+800)
-        a  = randUniform(RE+600, RE+800);    % [km]
+        a  = randUniform(RE+600, RE+650);    % [km]
         e  = randUniform(0.0, 0.1);          % eccentricity
-        iDeg = randUniform(80, 100);         % inclination in degrees
+        iDeg = 80;         % inclination in degrees
         iRad = deg2rad(iDeg);
         RAAN = deg2rad(randUniform(0, 360));
         ArgP = deg2rad(randUniform(0, 360));
@@ -56,7 +68,7 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
         [tArray, stateArray] = propagateOrbit(r0, v0, muEarth, tSpan, dt);
         % stateArray: Nx6 => [x, y, z, vx, vy, vz] each row
         
-        % Convert to AZ/EL from radar station's perspective
+        % Convert to AZ/EL from radar's perspective
         Npts = size(stateArray,1);
         azTrue = zeros(Npts,1);
         elTrue = zeros(Npts,1);
@@ -68,11 +80,17 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
 
             rDebris = stateArray(k,1:3)';  % ECI position of debris
             rVec = rDebris - radarPosECI;  % station->debris vector
-            dist = norm(rVec);
+            dist = norm(rVec);             % Line of Sight distance
             
-            if dist <= radarRangeLimit     %%Error this code defines radar range limit as the perpindicular distance, realisically its defined by the maximum slant range which is a function of the FOV
-                 % only compute az/el if within 50 km
+            if dist <= radarRangeLimit    
                 [azTrue(k), elTrue(k)] = eciToAzEl(rVec);
+                if (azTrue(k) < FOV_az) && (elTrue(k) < FOV_el)
+                    azTrue(k) = azTrue(k);
+                    elTrue(k) = elTrue(k);
+                else
+                    elTrue(k) = NaN;
+                    azTrue(k) = NaN;
+                end
             else
                 azTrue(k) = NaN;
                 elTrue(k) = NaN;
@@ -82,9 +100,11 @@ function monteCarloFiniteDiffDemo(numOrbits, measurementNoiseDeg, tSpan, dt)
         % "True" angle rates (central difference) ignoring measurement
         % noise Within the Field of View. Currently this is wrong
 
-        azRateTrue = centralDiff(azTrue, dt);
-        elRateTrue = centralDiff(elTrue, dt);
+        azRateMeas = centralDiff(azTrue, dt);
+        elRateMeas = centralDiff(elTrue, dt);
         
+        azRateTrue = 
+        elRateTrue =
         % Now add measurement noise (in degrees => radians)
         noiseAz = deg2rad(measurementNoiseDeg)*randn(Npts,1);
         noiseEl = deg2rad(measurementNoiseDeg)*randn(Npts,1);
@@ -149,6 +169,8 @@ function [rECI, vECI] = coe2rv(a, e, i, RAAN, argp, nu, mu)
     % Outputs:
     %   rECI, vECI in km, km/s
     
+    
+
     % 1) Orbital parameters
     p = a*(1 - e^2);         % semi-latus rectum
     rOrbit = p/(1 + e*cos(nu));
