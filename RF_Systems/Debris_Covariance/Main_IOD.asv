@@ -1,5 +1,5 @@
 %% Main IOD script: Take Measurements a Propagate forward for a revisit time
-clear; clc; close all
+clear; clc;
 %Purpose and Methodology: 
 % 1) Input SAR sizing/uncertanity parameters
 % 2) Conducts coordinate transformations from spherical LVLH to Cartesian
@@ -28,24 +28,24 @@ SC_kep= [Re + h, e, deg2rad(i), deg2rad(Om), deg2rad(om), deg2rad(theta)]; % [a 
 
 %% SAR sizing/uncertanity parameters [Herrick-Gibbs 1 satellite] (inputs)
 
-v_rel = 7e3;            % Maximum Relative Velocity of the Debris for this design 
-FOV = 11;               % Half cone FOV [deg]
-Range_max = 50;         % [km]
+v_rel = 7.5;            % Maximum Relative Velocity of the Debris for this design [km]
+FOV = 10.1103;               % Half cone FOV [deg]
+Range_max = 50.10;         % [km]
 Optical_SW = 100;       % [km] The optical Swath width TBD
 
 %Angle Errors at design point
-erange = 30.7e-3;        % Range Error [km]
-eangle = deg2rad(0.42);           % Angle error [Degrees]
+erange = 46.1e-3;        % Range Error [km]
+eangle = deg2rad(0.1);           % Angle error [Degrees]
 erange_rate = 0.005e-3;
 ediff = 0.01;
 eaz_rate = sqrt(2*(eangle^2));  %Finite difference error (taylor, introduction to error analysis)
 eel_rate = eaz_rate;
 %% Precompute Range, Az, El for verification
 
-SW_max = 2*Range_max*tand(FOV);   %Half cone swath width
-t_swath = 1e-3;                 %The time between pulses limits the number of data points
+SW_max = 2*Range_max*tand(FOV);   %Half cone swath width [km]
+t_swath = 1/9375;                 %The time between pulses limits the number of data points
 
-t_total = SW_max/v_rel;        % Timespan in view
+t_total = SW_max/(8*v_rel);        % Timespan in view
 N = floor(t_total/t_swath);      % Number of data points 
 dt = t_swath;                    % The difference between points is roughly the integration time of a 'scene'
 time = linspace(0,t_total,N);
@@ -158,141 +158,87 @@ for k = 1:N
 end
 
 % Create a figure with 6 subplots, one for each state
+% Figure 1: Plot 3-sigma uncertainties for each state
+state_labels = {'x', 'y', 'v_x', 'v_y', 'v_z', 'v_z'};
 figure;
 for state = 1:6
     subplot(3, 2, state); % 3 rows and 2 columns layout
     plot(1:N, threeSigma(state,:), 'LineWidth', 1.5);
     xlabel('Observation Number');
-    ylabel(sprintf('3σ for State %d', state));
-    title(sprintf('State %d', state));
-    xlim()
+    ylabel('Uncertainty (km)');
+    title(sprintf('3 sigma uncertainty of state %s', state_labels{state}));
+    xlim([0 150]);
+    grid on;
+end
+
+% Figure 2: Plot the rate of change of 3-sigma uncertainties for each state
+figure;
+for state = 1:6
+    subplot(3, 2, state); % 3 rows and 2 columns layout
+    % Compute the derivative using the gradient function
+    d_threeSigma = gradient(threeSigma(state,:));
+    plot(1:N, d_threeSigma, 'LineWidth', 1.5);
+    xlabel('Observation Number');
+    ylabel('Rate of Change (km/obs)');
+    title(sprintf('Rate of change of 3 sigma uncertainty for state %s', state_labels{state}));
+    xlim([0 150]);
     grid on;
 end
 
 %Min Time in FOV = scene time * number of observations 
 
 
+%% Propagate Covariance through time till error limit
+% Define propagation settings and initial conditions (as in your code)
+mu = 3.986e5;
+tspan = [0 10*24*3600];        % Propagation time: 10 days in seconds
+P0 = P_hist(:,:,120);           % Covariance matrix when debris leaves the FOV
+x0 = X_hist(end,:);            % State when leaving FOV
+
+%Convert x0 LVLH to ECI 
+
+
+% Define Optical Swath Width values (error limit in km)
+Optical_SW = [0.5, 0.8, 1, 5, 10, 100];
+
+% Prepare a figure for the 3-sigma uncertainty curves.
+figure;
+hold on;
+colors = lines(length(Optical_SW));
+
+% Loop through each Optical_SW value
+for i = 1:length(Optical_SW)
+    % Call the propagation function.
+    % (Make sure your Covariance_Prop function is modified to output Time_out and Cov_out.)
+    [final_state, final_cov, t_limit, Time_out, Cov_out] = Covariance_Prop(x0, P0, tspan, Optical_SW(i));
+    
+    % Compute uncertainties from the covariance history.
+    % Here we extract the position uncertainties for x, y, and z.
+    sigma_x = sqrt(Cov_out(:,7));   % Column 7 corresponds to variance in x
+    sigma_y = sqrt(Cov_out(:,14));  % Column 14 corresponds to variance in y
+    sigma_z = sqrt(Cov_out(:,21));  % Column 21 corresponds to variance in z
+    
+    % For this plot, we choose the x-position uncertainty as representative.
+    threeSigma = 3 * sigma_x;
+    
+    % Plot the 3-sigma uncertainty versus time (converted to hours).
+    plot(Time_out/3600, threeSigma, 'Color', colors(i,:), 'LineWidth', 1.5, ...
+         'DisplayName', sprintf('Optical SW = %.2f km', Optical_SW(i)));
+     
+    % Mark the revisit time on the curve with a marker.
+    idx = find(Time_out >= t_limit, 1);
+    plot(t_limit/3600, threeSigma(idx), 'o', 'Color', colors(i,:), ...
+         'MarkerSize', 8, 'MarkerFaceColor', colors(i,:));
+end
+
+xlabel('Time [hrs]');
+ylabel('3\sigma Uncertainty (km)');
+title('3\sigma Uncertainty vs Time for Different Optical SW');
+legend('Location', 'best');
+grid on;
 %% Propagate Covariance to get revisit time
 %Plot revisit time vs number of observations
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-% Generate a random straight line across a rectangular area in LVLH angles
-AzStart = -FOV + 2*FOV*rand();   % Random azimuth start in [-FOV, +FOV]
-AzEnd   = -FOV + 2*FOV*rand();   % Random azimuth end   in [-FOV, +FOV]
-ElStart = 0 + FOV*rand();        % Random elevation start in [0, FOV]
-ElEnd   = 0 + FOV*rand();        % Random elevation end   in [0, FOV]
-
-% Pre-allocate space
-Range = zeros(1,N);
-Az    = zeros(1,N);
-El    = zeros(1,N);
-
-%Position Variables 
-
-for i = 1:N
-    % Range fixed at Range_max
-    Range(i) = Range_max;
- 
-    % Linearly interpolate Az and El along a “random” line
-    Az(i) = AzStart + (AzEnd - AzStart)*(i-1)/(N-1);
-    El(i) = ElStart + (ElEnd - ElStart)*(i-1)/(N-1);
-end
-
-%Velocity variables 
-
-doppler_freq = speed2dop(v_rel,lambda); % For a circular orbit it will be constant
-% HOW TO CALCULATE THE RANGE RATE for an arbitary arc
-    %Find the doppler shift (worst case?)
-    %Find the range rate range_rate = dep2speed(doppler_freq,lambda);
-
-
-%Angle rates are estimated through numerical differentiation around
-%central point 
-
-az_rate = numerical_derivative(Az, dt);
-el_rate = numerical_derivative(El, dt);
-
-
-% Now construct the state in spherical LVLH coordinates
-state_spherical = [Range; Az; El; range_rate; az_rate; el_rate];
-error_spherical = [erange; eangle; eangle; erange_rate; eaz_rate; eel_rate];
-
-
-%coordinate transform from spherical LVLH to cartesian ECI (state).
-%Covariance still in LVLH, so that the sigma's represent the error ellipsoid
-
-%Prepare SC cartesian coordinates for conversion 
-Debris_state = zeros(3,length(state_spherical(1,:)));
-[SC_X] = kep2car(SC_kep,mu);
-t = 0;
-
-for i = 1:length(state_spherical(1,:))
-    [Debris_state(:,i), Debris_Error] = SphericalLVLH2cartECI(state_spherical(:,i),error_spherical, SC_rv(i,:), 1);
-    Debris_time(:,i) = t + dt;
-    t = Debris_time(:,i);
-end
-% %% Conduct Herrick Gibbs Orbit determination 
-% % For groups of three observations to get floor(N/3) velocity vectors
-% 
-% X = floor(N/3);                             %Number of Herrick Gibbs triplets
-% Debris_full_state = zeros(6,X);
-% t_full_state = zeros(1,X);
-% t = 0;
-% for i = 1:X                                 %For the number of herrick gibbs triplets
-%     t = t + 2*dt;
-% 
-%     r1 = Debris_state(1:3,i);
-%     r2 = Debris_state(1:3,i+1);
-%     r3 = Debris_state(1:3,i+2);
-%     t1 = Debris_time(1,i);
-%     t2 = Debris_time(1,i+1);
-%     t3 = Debris_time(1,i+2);
-%     [v2] = herrickgibbs(r1, r2, r3, t1, t2, t3, mu);   
-% 
-%     Debris_full_state(:,i) = [r2;v2];            %Save the outcome of the Herrick Gibbs orbit determination to the full debris state vector
-%     t_full_state(:,i) = t;                        %Save the timestamp for the EKF_IOD                        
-% end
-% Conclusion -> Herrick Gibbs fails
-%% If not Herrick Gibbs find the interpolated state through doppler shift
-
-
-
-
-%% Pass the full state vectors to an EKF to reduce the uncertanity of measurements 
-
-%If Herricks Gibbs has been completed the error is 9e-2 kms-1 https://oaktrust.library.tamu.edu/server/api/core/bitstreams/7c6e9e44-cd95-4f99-accd-bd6f7cea9999/content
-Herrick_Gibbs_error = diag([9e-2, 9e-2, 9e-2]);
-
-
-
-x0 = Debris_full_state(:,1);            %First guess the initial state as the first measurement
-P0 = [Debris_Error zeros(3,3); zeros(3,3) Herrick_Gibbs_error];                      %Take initial covariance Matrix as the Measurement matrix
-measurements = Debris_full_state;
-t = t_full_state;                       %Measurement timestamps
-
-[X_final, P_final] = EKF_IOD(x0, P0, measurements, t);
-
-%% Propagate Covariance through time till error limit
-mu = 3.986e14;
-tspan = [0 10*24*3600];            %Time propagation scale
-P = P_final;                       %Covariance Matrix as soon as the debris leaves the FOV
-x0 = X_final;                      %Debris state as soon as leaving FOV
-
-
-[Revisit_state, Revisit_cov, Revisit_time] = Covariance_Prop(x0, P, tspan, Optical_SW);
 
 
 

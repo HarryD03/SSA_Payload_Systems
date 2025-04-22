@@ -1,7 +1,7 @@
 %% EKF Test Function for IOD
 % Assume pure EKF code
 
-function [X_final, P_hist] = EKF_IOD(X_0, P_0,Z,t)
+function [X_final, P_hist] = EKF_IOD(X_0, P_0,Z,t,PRI)
 %Purpose: Reduce the Uncertanity of State through EKF so can revisit later
 
 %X_0 : [6x1] Initial position and Velocity in the LVLH Frame [m]
@@ -10,20 +10,21 @@ function [X_final, P_hist] = EKF_IOD(X_0, P_0,Z,t)
 %t   : [1xN] timestamps of the measurement epochs [s]
 
 options = odeset('AbsTol',1e-6, 'RelTol',1e-9);
-Q = zeros(6);           %Process Noise, How different are the dynamics to the 2BP?
+dt = mean(diff(t));     % Find the average difference between 
+Q = 0*diag([dt^3 dt^3 dt^3 dt dt dt]);           %Process Noise, How different are the dynamics to the 2BP?
 P = zeros(6,6,length(t));
 %Initialise state and covariance with inputs
 X = X_0;                % initial state
-P(:,:,1) = P_0;                % covariance Matrix [6x6]
+P(:,:,1) = P_0;         % covariance Matrix [6x6]
 N = length(t);          % Number of effective measurements post herrick gibbs
 dt = mean(diff(t));     % Find the average difference between 
-W = diag([(1/(P_0(1,1)^2)),(1/(P_0(2,2)^2)),1/(P_0(3,3)^2),1/(P_0(4,4)^2)]);  % Observations Weights matrix
-R = inv(W);
+
+R = diag([46.1e-3, deg2rad(0.1), deg2rad(0.1), 0.005e-3]);                        % Measurement errors
 t = dt;                                     % Measurement weights
 %Kalman Loop
 for i = 1:N
     % Prediction step 
-    tspan = 0:1e-3:t;
+    tspan = 0:PRI:t;
     [~, X_out] = ode45(@two_body, tspan, X, options);   %Predict state to next measurement  
     X_pred = X_out(end,:)';
 

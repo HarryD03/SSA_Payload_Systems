@@ -199,5 +199,5 @@ figure;
 plot(Nsub_list, maxFOV_vs_Nsub, 'o-', 'LineWidth',1.5, 'MarkerSize',6);
 xlabel('Number of Subswaths (N_{sub})');
 ylabel('Max Feasible Half-Cone FOV (degrees)');
-title('Max Feasible FOV vs. Number of Subswaths (p_{peak} = 10 W)');
+title('Max Feasible FOV vs. Number of Subswaths');
 grid on;

@@ -1,4 +1,7 @@
 function [dr_LVLH, dv_LVLH] = rotate_ECI2LVLH(r_B, v_B, r_A, v_A)
+
+%Input
+%THe velocity and Position vectors are [3x1]
     
     L_x = r_A/(norm(r_A));
     L_z = (cross(r_A,v_A)/ norm(cross(r_A,v_A)));
@@ -11,5 +14,5 @@ function [dr_LVLH, dv_LVLH] = rotate_ECI2LVLH(r_B, v_B, r_A, v_A)
 
     
     dr_LVLH = R_i * dr_i;
-    dv_LVLH = (dv_i - (cross(Om_A, dr_i)));
+    dv_LVLH = R_i * (dv_i - cross(Om_A, dr_i));
 end

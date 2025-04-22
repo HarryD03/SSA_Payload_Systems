@@ -28,13 +28,14 @@ SC_kep= [Re + h, e, deg2rad(i), deg2rad(Om), deg2rad(om), deg2rad(theta)]; % [a 
 
 %% SAR sizing/uncertanity parameters [Herrick-Gibbs 1 satellite] (inputs)
 
-v_rel = 7e3;            % Maximum Relative Velocity of the Debris for this design 
-FOV = 11;               % Half cone FOV [deg]
-Range_max = 50;         % [km]
+v_rel = 7.5;            % Maximum Relative Velocity of the Debris for this design [km]
+FOV = 10.1103;           % ScanSAR Half cone FOV [deg]
+FOV_strip = 10.1103/8;   % FoV per strip [deg]
+Range_max = 50.10;         % [km]
 Optical_SW = 100;       % [km] The optical Swath width TBD
 
 %Angle Errors at design point
-erange = 30.7e-3;        % Range Error [km]
+erange = 46.1e-3;        % Range Error [km]
 eangle = deg2rad(0.1);           % Angle error [Degrees]
 erange_rate = 0.005e-3;
 ediff = 0.01;
@@ -42,10 +43,10 @@ eaz_rate = sqrt(2*(eangle^2));  %Finite difference error (taylor, introduction t
 eel_rate = eaz_rate;
 %% Precompute Range, Az, El for verification
 
-SW_max = 2*Range_max*tand(FOV);   %Half cone swath width
-t_swath = 1e-3;                 %The time between pulses limits the number of data points
+SW_max = 2*Range_max*tand(FOV);   %Half cone swath width [km]
+t_swath = 1/9375;                 %The time between pulses limits the number of data points
 
-t_total = SW_max/v_rel;        % Timespan in view
+t_total = SW_max/(8*v_rel);        % Timespan in view
 N = floor(t_total/t_swath);      % Number of data points 
 dt = t_swath;                    % The difference between points is roughly the integration time of a 'scene'
 time = linspace(0,t_total,N);
@@ -58,7 +59,7 @@ i = 90;
 RAAN = 90;
 w = 0;
 f0 = 0; 
-tspan = 0:1e-3:2;
+tspan = 0:dt:2;
 Debris_kep = [Re+h,e,deg2rad(i),deg2rad(RAAN), deg2rad(w),deg2rad(f0)];
 [SC_rv,SC_t] = Debris_Propagtor(SC_kep,tspan);
 [Debris_rv, Debris_t]  = Debris_Propagtor(Debris_kep,tspan);
@@ -125,7 +126,7 @@ Debris_state_LVLH_spherical_Measurable_EKF = Debris_state_LVLH_spherical_Measura
 measurements = Debris_state_LVLH_spherical_Measurable_EKF;      %Require Spherical LVLH
 t = Debris_t;
 
-[X_hist, P_hist] = EKF_IOD(x0, P0, measurements, t);
+[X_hist, P_hist] = EKF_IOD(x0, P0, measurements, t,);
 
 %% Plots to determine "Optimal" number of observations
 
@@ -167,7 +168,7 @@ for state = 1:6
     xlabel('Observation Number');
     ylabel('Uncertainty (km)');
     title(sprintf('3 sigma uncertainty of state %s', state_labels{state}));
-    xlim([0 100]);
+    xlim([0 150]);
     grid on;
 end
 
@@ -181,7 +182,7 @@ for state = 1:6
     xlabel('Observation Number');
     ylabel('Rate of Change (km/obs)');
     title(sprintf('Rate of change of 3 sigma uncertainty for state %s', state_labels{state}));
-    xlim([0 100]);
+    xlim([0 150]);
     grid on;
 end
 

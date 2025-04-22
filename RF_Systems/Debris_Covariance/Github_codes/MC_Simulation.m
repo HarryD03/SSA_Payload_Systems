@@ -8,15 +8,15 @@ tic; close all; clc
 %% Inputs
 N = 100;                % Number of random samples
 t0 = 0;                 % Initial time [s]
-t_final = 24*3600;      % End time [s]
-num_steps = 100;        % Number of time points to record
+t_final = 2*3600;      % End time [s]
+num_steps = 100000;        % Number of time points to record
 t_vector = linspace(t0, t_final, num_steps);  % Time vector for output
 
 % Initial mean state [x, y, z, xdot, ydot, zdot]
-m0 = [3.9583e4, -1.4667e4, 0.1035e4, 1.0583, 2.8815, 0.0842];
+m0 = [4.27462965242384e-13, 6981, 0, -4.62690608259837e-16, 2.83316286200476e-32, 7.55631106996696];
 
 % Initial covariance matrix (6x6) [km and km/s]
-p0 = (P_hist(:,:,125) + P_hist(:,:,125)') / 2;    % Provided covariance at index 66
+p0 = (P_hist(:,:,end));    % Provided covariance at index 66
 
 n = length(m0);         % State vector dimension
 
@@ -47,8 +47,6 @@ P_final = cov(squeeze(x_all(:, end, :)));
 disp('Final Covariance Matrix:');
 disp(P_final);
 
-final_mean = mean(squeeze(x_all(:, end, :)), 1);
-fprintf('Monte Carlo Simulation mean: \n x = %.3e, y = %.3e, z = %.3e, xdot = %.3e, ydot = %.3e, zdot = %.3e\n', final_mean);
 
 %% Plotting: Evolution of Standard Deviations in x, y, and z over Time
 % Preallocate arrays for sigma_x, sigma_y, and sigma_z

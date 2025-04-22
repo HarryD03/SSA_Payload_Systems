@@ -32,18 +32,18 @@ function [final_state, final_cov, t_limit, Time_out, Cov_out] = Covariance_Prop(
 
     % Optional: The function can still generate plots if needed.
     % However, it is often better to separate plotting from computation.
-    %
+
     % For example, to plot covariance growth, you might include:
-    % Time_out_hrs = Time_out / 3600;
-    % figure;
-    % plot(Time_out_hrs, 3*sigma_x, 'r', 'LineWidth', 1.5);
-    % hold on;
-    % plot(Time_out_hrs, 3*sigma_y, 'g', 'LineWidth', 1.5);
-    % plot(Time_out_hrs, 3*sigma_z, 'b', 'LineWidth', 1.5);
-    % xlabel('Time [hrs]');
-    % ylabel('Position Uncertainty (km)');
-    % legend('\sigma_x', '\sigma_y', '\sigma_z');
-    % title('Covariance Growth Over Time');
-    % grid on;
-    % xlim([0 50]);
+    Time_out_hrs = Time_out / 3600;
+    figure;
+    plot(Time_out_hrs, 3*sigma_x, 'r', 'LineWidth', 1.5);
+    hold on;
+    plot(Time_out_hrs, 3*sigma_y, 'g', 'LineWidth', 1.5);
+    plot(Time_out_hrs, 3*sigma_z, 'b', 'LineWidth', 1.5);
+    xlabel('Time [hrs]');
+    ylabel('Position Uncertainty (km)');
+    legend('\sigma_x', '\sigma_y', '\sigma_z');
+    title('Covariance Growth Over Time');
+    grid on;
+    xlim([0 50]);
 end

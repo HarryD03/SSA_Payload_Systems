@@ -12,8 +12,8 @@ function [sph_state] =CartLVLH2SphLVLH(cart)
     %Get the spherical velocity
     %Differentiate the range, az, el functions wrt time
     range_rate = (x*vx + y*vy + z*vz)/range;
-    azimuth_rate = (x*vy - y*vy)/(x^2 + y^2);
-    elevation_rate = (range*vz - z*range_rate)/(range^2*sqrt((range^2 - z^2)/range^2));
+    azimuth_rate = ((x*vy) - (y*vx)) / (x^2 + y^2);
+    elevation_rate = ((x^2 + y^2)*vz - (z*((x*vx) + (y*vy))))/(sqrt(x^2 + y^2) * (x^2 + y^2 +z^2));
 
-    sph_state = [range, rad2deg(azimuth), rad2deg(elevation), range_rate, rad2deg(azimuth_rate), rad2deg(elevation_rate)];
+    sph_state = [range, azimuth, elevation, range_rate, azimuth_rate, elevation_rate];
 end

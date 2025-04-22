@@ -1,7 +1,7 @@
-%%% Modified Code for scanSAR Mode (FOV vs. Uncertainty Pareto Front), now including FOV vs. Range
+%% Modified Code for scanSAR Mode (FOV vs. Uncertainty Pareto Front), now including FOV vs. Range
 clear; clc; close all;
-% Todo:
-% Write explaination for FOV, range and uncertanity as FoM 
+
+% Design Freeze code
 %% Choose operational mode: 'stripSAR' or 'scanSAR'
 operational_mode = 'scanSAR';
 if strcmpi(operational_mode, 'scanSAR')
@@ -11,25 +11,25 @@ else
 end
 
 %% Design Variables
-antenna_width_vec = linspace(0.01, 5, 20);     % Antenna widths [m]
-range_vec         = linspace(50e3, 200e3, 30);  % Slant range values [m]
+antenna_width_vec = linspace(0.01, 10, 200);     % Antenna widths [m]
+range_vec         = linspace(10e3, 200e3, 200);  % Slant range values [m]
 res_along_vec     = 10e-2;                      % Azimuth resolution [m]
 FOV_limit = 5.5; %FOV limit for Herrick Gibbs
 Power_limit = 50*0.55; %Peak Power limt
 Power_target = 20; % 
 % Bandwidth vector (MHz converted to Hz)
-bandwidth_vec = [0.5, 1, 10, 50, 80]*1e6;   % [Hz]
+bandwidth_vec = [0.5,1, 10, 50, 80]*1e6;   % [Hz]
 
 % Peak Power vector [W]
-p_peak_vec =  25  % watts
+p_peak_vec =  25;  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
 f = 5e9;  % Frequency [Hz] based on ITU 
 
 %% Constants and Other Parameters
-c           = 7e8;              % Speed of light [m/s]
-v_rel       = 7e3;              % Relative velocity [m/s]
+c           = 3e8;              % Speed of light [m/s]
+v_rel       = 7.5e3;              % Relative velocity [m/s]
 boltz_const = 1.380649e-23;     % Boltzmann constant [J/K]
 T_sys       = 300;              % System noise temperature [K] define (look at phased array paper) 
 receiver_noise_db = 2;          % [dB] define
@@ -40,7 +40,7 @@ eff_trans   = 1;                % Transmitter efficiency (assumed)
 lambda      = c/f;              % Wavelength [m]
 
 % Quantization bits for data rate calculation
-quantisation_bits = 2;          % Where? define
+quantisation_bits = 10;          % Where? define
 
 %% Desired Range Resolution and Pulse Compression Calculation
 desired_range_resolution = 0.1;         % 10 cm resolution
@@ -70,10 +70,12 @@ p_peak_store = zeros(N, Lr, M, K, Lp);
 for j = 1:Lr
     for i = 1:N
         for m = 1:M
-            D_AT = 2 * res_along_vec(m);  % Azimuth dimension [m]
+            D_AT = 2 * res_along_vec(m);                    % Azimuth dimension [m]
             A_phys_all(i,m) = antenna_width_vec(i) * D_AT;  % [m^2]
+            graz_ang = lambda/2 * antenna_width_vec(i);     % beamwidth/2, taking antenna width as aperature in this direction
+            graz_ang = rad2deg(graz_ang);
             R_val = range_vec(j);
-            graz_ang = lambda/2 * antenna_width_vec(i);
+            R_val = R_val *cosd(graz_ang); %Slant Range
             A_min = (4*v_rel*lambda*R_val)/c * tand(graz_ang);
             if A_phys_all(i,m) < A_min
                 A_phys_all(i,m) = NaN;
@@ -102,9 +104,11 @@ for l = 1:Lp
                 
                 for j = 1:Lr
                     R_val = range_vec(j);
-                    
+                    graz_ang = lambda/2 * antenna_width_vec(i);
+                    graz_ang = rad2deg(graz_ang);
+                    R_val = R_val * cosd(graz_ang); %get Slant Range
                     % In stripmap mode, swath width:
-                    SW_strip = lambda * R_val / antenna_width_vec(i);
+                    SW_strip = lambda * R_val / antenna_width_vec(i); %SMAD p.508
                     % In scanSAR mode, total swath is expanded over Nsub subswaths:
                     if Nsub > 1
                         SW = Nsub * SW_strip;
@@ -113,10 +117,11 @@ for l = 1:Lp
                     end
                     SW_all(i,j,m,k,l) = SW;
                     
-                    graz_ang = lambda/2 * antenna_width_vec(i);
+                    
                     % For PRF bounds in scanSAR, use the instantaneous (per-subswath) swath:
                     if Nsub > 1
                         [PRF_min_local, PRF_max] = sarprfbounds(v_rel, res_along_vec, SW_strip, graz_ang);
+                        prf = PRF_min_local/Nsub;
                     else
                         [PRF_min_local, PRF_max] = sarprfbounds(v_rel, res_along_vec, SW, graz_ang);
                     end
@@ -196,12 +201,12 @@ beamwidth = lambda./(D_AT);  % Synthetic aperture beamwidth
 sigma_ang = beamwidth./sqrt(2.*SNR_linear);
 sigma = (sigma_r + sigma_ang)/2;          % average uncertainty
 
-%% Compute Field-of-View (FOV)
+%% Compute Field-of-View (FOV) % add slant range
 FOV = asind((SW_vec/2)./Range_vec);  % in degrees
 Range_vec = Range_vec .* cosd(FOV);
 
 %% Define Feasible Designs
-feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 5); %define SNR limit 
+feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 7); %define SNR limit 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Global Pareto Front Calculation (FOV vs. Uncertainty)
@@ -266,7 +271,7 @@ for ip = 1:nLevels
     subplot(nrows, ncols, ip);
     scatter(group_sigma, group_FOV, 20, colors(ip,:), 'filled');
     hold on;
-    scatter(group_sigma(groupParetoIdx), group_FOV(groupParetoIdx), 30, 'r', 'o');
+    scatter(group_sigma(groupParetoIdx), group_FOV(groupParetoIdx), 30, 'r', 'filled');
     yline(FOV_limit)
     xlabel('Uncertainty (\sigma) [m]');
     ylabel('FOV [deg]');
@@ -460,10 +465,13 @@ for ip = 1:nLevels
     
     scatter(groupRange, groupFOV, 20, colors(ip,:), 'filled');
     hold on;
-    scatter(groupRange(paretoIdx_group), groupFOV(paretoIdx_group), 30, 'r', 'o');
+    scatter(groupRange(paretoIdx_group), groupFOV(paretoIdx_group), 30, 'r', 'filled');
+
+
     xlabel('Range [km]');
     ylabel('FOV [deg]');
     title(sprintf('FOV vs. Range at p_{peak} = %g W', unique_power(ip)));
+    legend('Feasible Designs', 'Pareto Front')
     grid on;
     hold off;
 end
@@ -531,3 +539,25 @@ ylabel('Uncertainty (\sigma) [m]');
 title('Uncertainty vs. Peak Power for Various FOV-Dependent Designs (p_{peak} \geq 1W)');
 legend('show');
 grid on;
+
+%% NEW SECTION: FOV vs. Range with Average Uncertainty Contour
+figure;
+scatter(feasible_range_all/1000, feasible_FOV_all, 20, feasible_sigma_all, 'filled');
+colormap(jet);
+colorbar;
+xlabel('Range [km]');
+ylabel('FOV [deg]');
+title('FOV vs. Range with Average Uncertainty Contour');
+grid on;
+hold on;
+
+% Create a grid for contouring
+xq = linspace(min(feasible_range_all), max(feasible_range_all), 100);
+yq = linspace(min(feasible_FOV_all), max(feasible_FOV_all), 100);
+[X, Y] = meshgrid(xq, yq);
+
+% Interpolate uncertainty values (sigma) onto the grid
+Z = griddata(feasible_range_all, feasible_FOV_all, feasible_sigma_all, X, Y, 'linear');
+ylabel(colorbar, 'Uncertainty (\sigma) [m]');
+legend('Feasible Designs');
+hold off;
