@@ -212,6 +212,7 @@ tspan = linspace(t0, t_final, num_steps);  % Time vector for output
 X0 = Debris_rv(1,:);         % Debris Position and velocity ECI
 P0 = P_hist(:,:,end);        % Shrunken Covariance Matrix
 
+%% NOW OPEN MC_Simulation.m in the 'Github codes' folder
 
 
 
@@ -222,133 +223,106 @@ P0 = P_hist(:,:,end);        % Shrunken Covariance Matrix
 
 
 
-
-%% Inputs
-t0 = 0;                 % Initial time [s]
-t_final = 2*3600;      % End time [s]
-num_steps = 10000;        % Number of time points to record
-t_vector = linspace(t0, t_final, num_steps);  % Time vector for output
-
-% Initial mean state [x, y, z, xdot, ydot, zdot]
-SC_r = SC_rv(1,1:3);
-SC_v = SC_rv(1,4:6);
-Debris_r = x0(1:3);
-Debris_v = x0(4:6);
-
-
-[r_B, v_B] = rotate_LVLH2ECI(x0(1:3)', x0(4:6)', SC_r', SC_v');
-x0 = Debris_rv(1,:);                %Assume  
-% Initial covariance matrix (6x6) [km and km/s]
-p0 = P_hist(:,:,end);    % Provided covariance at convergence point
-
-n = length(x0);         % State vector dimension
-
-
-%% Preallocate arrays for state trajectories and covariance history
-
-[p_out, x_traj, STM] = phi(t_vector, x0, p0);
-x_all = x_traj;
-
-
-P_history = p_out;
-
-%% Plotting: Evolution of Standard Deviations in x, y, and z over Time
-% Preallocate arrays for sigma_x, sigma_y, and sigma_z
-sigma_x = zeros(1, num_steps);
-sigma_y = zeros(1, num_steps);
-sigma_z = zeros(1, num_steps);
-
-for j = 1:num_steps
-    sigma_x(j) = 3*sqrt(P_history(1,1,j));
-    sigma_y(j) = 3*sqrt(P_history(2,2,j));
-    sigma_z(j) = 3*sqrt(P_history(3,3,j));
-end
-
-figure;
-plot(t_vector/3600, sigma_x, 'LineWidth', 1.5, 'DisplayName', '\sigma_x');
-hold on;
-plot(t_vector/3600, sigma_y, 'LineWidth', 1.5, 'DisplayName', '\sigma_y');
-plot(t_vector/3600, sigma_z, 'LineWidth', 1.5, 'DisplayName', '\sigma_z');
-xlabel('Time (hrs)');
-ylabel('Uncertainty (km)');
-title('Evolution of Uncertainty (\sigma) in x, y, and z');
-legend('show');
-ylim([0 1000])
-grid on;
-
-% %% Plotting the Final Distribution using Scatter Histograms
+% %% Inputs
+% t0 = 0;                 % Initial time [s]
+% t_final = 2*3600;      % End time [s]
+% num_steps = 10000;        % Number of time points to record
+% t_vector = linspace(t0, t_final, num_steps);  % Time vector for output
 % 
-% % Plot y versus x
-% figure('Name', 'f1')
-% s1 = scatterhist(squeeze(x_all(:, end, 1)), squeeze(x_all(:, end, 2)), ...
-%     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
-% xlabel('x (km)')
-% ylabel('y (km)')
+% % Initial mean state [x, y, z, xdot, ydot, zdot]
+% SC_r = SC_rv(1,1:3);
+% SC_v = SC_rv(1,4:6);
+% Debris_r = x0(1:3);
+% Debris_v = x0(4:6);
 % 
-% % Plot z versus x
-% figure('Name', 'f2')
-% s2 = scatterhist(squeeze(x_all(:, end, 1)), squeeze(x_all(:, end, 3)), ...
-%     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
-% xlabel('x (km)')
-% ylabel('z (km)')
 % 
-% % Plot ydot versus xdot
-% figure('Name', 'f3')
-% s3 = scatterhist(squeeze(x_all(:, end, 4)), squeeze(x_all(:, end, 5)), ...
-%     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
-% xlabel('$\dot{x}$ (km/s)', 'Interpreter', 'latex')
-% ylabel('$\dot{y}$ (km/s)', 'Interpreter', 'latex')
+% [r_B, v_B] = rotate_LVLH2ECI(x0(1:3)', x0(4:6)', SC_r', SC_v');
+% x0 = Debris_rv(1,:);                %Assume  
+% % Initial covariance matrix (6x6) [km and km/s]
+% p0 = P_hist(:,:,end);    % Provided covariance at convergence point
 % 
-% % Plot zdot versus xdot
-% figure('Name', 'f4')
-% s4 = scatterhist(squeeze(x_all(:, end, 4)), squeeze(x_all(:, end, 6)), ...
-%     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
-% xlabel('$\dot{x}$ (km/s)', 'Interpreter', 'latex')
-% ylabel('$\dot{z}$ (km/s)', 'Interpreter', 'latex')
+% n = length(x0);         % State vector dimension
+
+
+% %% Preallocate arrays for state trajectories and covariance history
 % 
-% % Combine the four scatter plots into one figure
-% figure('Name', 'Combined Plots')
-% u1 = uipanel('Position', [0 .5 .5 .5]);
-% set(s1, 'Parent', u1)
-% u2 = uipanel('Position', [.5 .5 .5 .5]);
-% set(s2, 'Parent', u2)
-% u3 = uipanel('Position', [0 0 .5 .5]);
-% set(s3, 'Parent', u3)
-% u4 = uipanel('Position', [.5 0 .5 .5]);
-% set(s4, 'Parent', u4)
-% close f1 f2 f3 f4
-
-toc
-
-%% Modified Propagation Function: phi
-
-function [p_out, x_out, STM] = phi(t_vector, x0, p0)
-    % Propagates the two-body dynamics and the STM
-    % t_vector: vector of times to record the solution
-    % x0: initial state [r; v] (6x1)
-    % Returns:
-    %   t_out: time vector from ode45
-    %   x_out: state trajectory [num_steps x 6]
-    %   STM: state transition matrices at each time step [6 x 6 x num_steps]
-    dt = mean(diff(t_vector));
-    x_out = x0';
-    p_out = p0;
-    
-    for i = 2:(length(t_vector))
-        A = sm(x_out(:,i-1));
-        STM = expm(A*dt);
-        
-        x_out(:,i) = STM*x_out(:,i-1);
-        p_out(:,:,i) = STM*p_out(:,:,i-1) * STM';
-    end
-    x_out = x_out';
-
-   
-end
-
-
-
-% function [t_out, x_out, STM] = phi(t_vector, x0)
+% [p_out, x_traj, STM] = phi(t_vector, x0, p0);
+% x_all = x_traj;
+% 
+% 
+% P_history = p_out;
+% 
+% %% Plotting: Evolution of Standard Deviations in x, y, and z over Time
+% % Preallocate arrays for sigma_x, sigma_y, and sigma_z
+% sigma_x = zeros(1, num_steps);
+% sigma_y = zeros(1, num_steps);
+% sigma_z = zeros(1, num_steps);
+% 
+% for j = 1:num_steps
+%     sigma_x(j) = 3*sqrt(P_history(1,1,j));
+%     sigma_y(j) = 3*sqrt(P_history(2,2,j));
+%     sigma_z(j) = 3*sqrt(P_history(3,3,j));
+% end
+% 
+% figure;
+% plot(t_vector/3600, sigma_x, 'LineWidth', 1.5, 'DisplayName', '\sigma_x');
+% hold on;
+% plot(t_vector/3600, sigma_y, 'LineWidth', 1.5, 'DisplayName', '\sigma_y');
+% plot(t_vector/3600, sigma_z, 'LineWidth', 1.5, 'DisplayName', '\sigma_z');
+% xlabel('Time (hrs)');
+% ylabel('Uncertainty (km)');
+% title('Evolution of Uncertainty (\sigma) in x, y, and z');
+% legend('show');
+% ylim([0 1000])
+% grid on;
+% 
+% % %% Plotting the Final Distribution using Scatter Histograms
+% % 
+% % % Plot y versus x
+% % figure('Name', 'f1')
+% % s1 = scatterhist(squeeze(x_all(:, end, 1)), squeeze(x_all(:, end, 2)), ...
+% %     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
+% % xlabel('x (km)')
+% % ylabel('y (km)')
+% % 
+% % % Plot z versus x
+% % figure('Name', 'f2')
+% % s2 = scatterhist(squeeze(x_all(:, end, 1)), squeeze(x_all(:, end, 3)), ...
+% %     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
+% % xlabel('x (km)')
+% % ylabel('z (km)')
+% % 
+% % % Plot ydot versus xdot
+% % figure('Name', 'f3')
+% % s3 = scatterhist(squeeze(x_all(:, end, 4)), squeeze(x_all(:, end, 5)), ...
+% %     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
+% % xlabel('$\dot{x}$ (km/s)', 'Interpreter', 'latex')
+% % ylabel('$\dot{y}$ (km/s)', 'Interpreter', 'latex')
+% % 
+% % % Plot zdot versus xdot
+% % figure('Name', 'f4')
+% % s4 = scatterhist(squeeze(x_all(:, end, 4)), squeeze(x_all(:, end, 6)), ...
+% %     'Location', 'SouthEast', 'Direction', 'out', 'Kernel', 'on', 'LineWidth', 1, 'MarkerSize', 1);
+% % xlabel('$\dot{x}$ (km/s)', 'Interpreter', 'latex')
+% % ylabel('$\dot{z}$ (km/s)', 'Interpreter', 'latex')
+% % 
+% % % Combine the four scatter plots into one figure
+% % figure('Name', 'Combined Plots')
+% % u1 = uipanel('Position', [0 .5 .5 .5]);
+% % set(s1, 'Parent', u1)
+% % u2 = uipanel('Position', [.5 .5 .5 .5]);
+% % set(s2, 'Parent', u2)
+% % u3 = uipanel('Position', [0 0 .5 .5]);
+% % set(s3, 'Parent', u3)
+% % u4 = uipanel('Position', [.5 0 .5 .5]);
+% % set(s4, 'Parent', u4)
+% % close f1 f2 f3 f4
+% 
+% toc
+% 
+% %% Modified Propagation Function: phi
+% 
+% function [p_out, x_out, STM] = phi(t_vector, x0, p0)
 %     % Propagates the two-body dynamics and the STM
 %     % t_vector: vector of times to record the solution
 %     % x0: initial state [r; v] (6x1)
@@ -356,100 +330,126 @@ end
 %     %   t_out: time vector from ode45
 %     %   x_out: state trajectory [num_steps x 6]
 %     %   STM: state transition matrices at each time step [6 x 6 x num_steps]
+%     dt = mean(diff(t_vector));
+%     x_out = x0';
+%     p_out = p0;
 % 
-%     % Initial STM is the 6x6 identity matrix.
-%     phi0 = eye(6);
-%     % Flatten the STM to a vector.
-%     phi0_vec = reshape(phi0, [],1);
+%     for i = 2:(length(t_vector))
+%         A = sm(x_out(:,i-1));
+%         STM = expm(A*dt);
 % 
-%     % Augment the initial state with the STM vector.
-%     y0 = [x0'; phi0_vec];
-% 
-%     % Set ODE options (optional: adjust tolerances as needed)
-%     options = odeset('RelTol',1e-10,'AbsTol',1e-12);
-% 
-%     % Solve the augmented differential equation using ode45.
-%     [t_out, y_out] = ode45(@(t,y) two_body_aug(t,y), t_vector, y0, options);
-% 
-%     % Extract the state trajectory.
-%     x_out = y_out(:,1:6);
-% 
-%     % Number of time steps.
-%     num_steps = length(t_out);
-%     % Preallocate the 3D array for the STM history.
-%     STM = zeros(6,6,num_steps);
-% 
-%     % Extract the STM at each time step.
-%     for k = 1:num_steps
-%         phi_vec = y_out(k, 7:end);
-%         STM(:,:,k) = reshape(phi_vec, 6, 6);
+%         x_out(:,i) = STM*x_out(:,i-1);
+%         p_out(:,:,i) = STM*p_out(:,:,i-1) * STM';
 %     end
+%     x_out = x_out';
+% 
+% 
 % end
 % 
-% function dydt = two_body_aug(~, y)
-%     % Computes the derivatives for the augmented state vector [x; phi_vec]
-%     % where x is the state (6x1) and phi is the 6x6 STM (flattened to 36x1).
-%     % Gravitational parameter (e.g., for Earth: mu = 398600 km^3/s^2)
-%     mu = 398600;  % adjust as needed
-%     % Extract state vector.
-%     state = y(1:6);
-%     % Reshape the remaining 36 elements into the 6x6 STM.
-%     phi = reshape(y(7:end), 6, 6);
-% 
-%             % Component
-%     x = state(1);
-%     y = state(2);
-%     z = state(3);
-%     % Vector
-%     r = [x y z]';
-%     % Magnitude
-%     R = norm(r);
 % 
 % 
-%     % Component
-%     dx = state(4);
-%     dy = state(5);
-%     dz = state(6);
-%     % Vector
-%     v = [dx dy dz]';
-%     % Magnitude
-%     V = norm(v);
-% 
-% 
-%     % Component
-%     ddx = -mu*x/R^3;
-%     ddy = -mu*y/R^3;
-%     ddz = -mu*z/R^3;
-%     % Vector
-%     a = [ddx ddy ddz]';
-% 
-%     xdot = [v;a]; % Return state vector for next step
-% 
-% 
-% 
-%      %Extract the state
-%     rx = state(1);
-%     ry = state(2);
-%     rz = state(3);
-% 
-%     r0_norm = norm(state(1:3));
-%     coef1 = 3*mu/(2*r0_norm^5);
-%     coef2 = mu/(2*r0_norm^3);
-% 
-%     %Form 2BP dynamics matrix
-%     A_21 = [coef1*rx^2 - coef2, coef1*rx*ry, coef1*rx*rz;
-%             coef1*rx*ry, coef1*ry^2 - coef2, coef1*ry*rz;
-%             coef1*rx*rz, coef1*ry*rz, coef1*rz^2-coef1];
-% 
-%     A = [zeros(3), eye(3); A_21, zeros(3)];
-% 
-%     % Compute the derivative of the STM.
-%     phi_dot = A * phi;
-% 
-%     % Flatten phi_dot to a column vector.
-%     phi_dot_vec = reshape(phi_dot, [], 1);
-% 
-%     % Combine the derivatives.
-%     dydt = [xdot; phi_dot_vec];
-% end
-% 
+% % function [t_out, x_out, STM] = phi(t_vector, x0)
+% %     % Propagates the two-body dynamics and the STM
+% %     % t_vector: vector of times to record the solution
+% %     % x0: initial state [r; v] (6x1)
+% %     % Returns:
+% %     %   t_out: time vector from ode45
+% %     %   x_out: state trajectory [num_steps x 6]
+% %     %   STM: state transition matrices at each time step [6 x 6 x num_steps]
+% % 
+% %     % Initial STM is the 6x6 identity matrix.
+% %     phi0 = eye(6);
+% %     % Flatten the STM to a vector.
+% %     phi0_vec = reshape(phi0, [],1);
+% % 
+% %     % Augment the initial state with the STM vector.
+% %     y0 = [x0'; phi0_vec];
+% % 
+% %     % Set ODE options (optional: adjust tolerances as needed)
+% %     options = odeset('RelTol',1e-10,'AbsTol',1e-12);
+% % 
+% %     % Solve the augmented differential equation using ode45.
+% %     [t_out, y_out] = ode45(@(t,y) two_body_aug(t,y), t_vector, y0, options);
+% % 
+% %     % Extract the state trajectory.
+% %     x_out = y_out(:,1:6);
+% % 
+% %     % Number of time steps.
+% %     num_steps = length(t_out);
+% %     % Preallocate the 3D array for the STM history.
+% %     STM = zeros(6,6,num_steps);
+% % 
+% %     % Extract the STM at each time step.
+% %     for k = 1:num_steps
+% %         phi_vec = y_out(k, 7:end);
+% %         STM(:,:,k) = reshape(phi_vec, 6, 6);
+% %     end
+% % end
+% % 
+% % function dydt = two_body_aug(~, y)
+% %     % Computes the derivatives for the augmented state vector [x; phi_vec]
+% %     % where x is the state (6x1) and phi is the 6x6 STM (flattened to 36x1).
+% %     % Gravitational parameter (e.g., for Earth: mu = 398600 km^3/s^2)
+% %     mu = 398600;  % adjust as needed
+% %     % Extract state vector.
+% %     state = y(1:6);
+% %     % Reshape the remaining 36 elements into the 6x6 STM.
+% %     phi = reshape(y(7:end), 6, 6);
+% % 
+% %             % Component
+% %     x = state(1);
+% %     y = state(2);
+% %     z = state(3);
+% %     % Vector
+% %     r = [x y z]';
+% %     % Magnitude
+% %     R = norm(r);
+% % 
+% % 
+% %     % Component
+% %     dx = state(4);
+% %     dy = state(5);
+% %     dz = state(6);
+% %     % Vector
+% %     v = [dx dy dz]';
+% %     % Magnitude
+% %     V = norm(v);
+% % 
+% % 
+% %     % Component
+% %     ddx = -mu*x/R^3;
+% %     ddy = -mu*y/R^3;
+% %     ddz = -mu*z/R^3;
+% %     % Vector
+% %     a = [ddx ddy ddz]';
+% % 
+% %     xdot = [v;a]; % Return state vector for next step
+% % 
+% % 
+% % 
+% %      %Extract the state
+% %     rx = state(1);
+% %     ry = state(2);
+% %     rz = state(3);
+% % 
+% %     r0_norm = norm(state(1:3));
+% %     coef1 = 3*mu/(2*r0_norm^5);
+% %     coef2 = mu/(2*r0_norm^3);
+% % 
+% %     %Form 2BP dynamics matrix
+% %     A_21 = [coef1*rx^2 - coef2, coef1*rx*ry, coef1*rx*rz;
+% %             coef1*rx*ry, coef1*ry^2 - coef2, coef1*ry*rz;
+% %             coef1*rx*rz, coef1*ry*rz, coef1*rz^2-coef1];
+% % 
+% %     A = [zeros(3), eye(3); A_21, zeros(3)];
+% % 
+% %     % Compute the derivative of the STM.
+% %     phi_dot = A * phi;
+% % 
+% %     % Flatten phi_dot to a column vector.
+% %     phi_dot_vec = reshape(phi_dot, [], 1);
+% % 
+% %     % Combine the derivatives.
+% %     dydt = [xdot; phi_dot_vec];
+% % end
+% % 

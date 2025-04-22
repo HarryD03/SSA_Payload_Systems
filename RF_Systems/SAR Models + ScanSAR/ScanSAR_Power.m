@@ -5,7 +5,7 @@ clear; clc; close all;
 %% Operational Mode Settings (scanSAR)
 operational_mode = 'scanSAR';
 if strcmpi(operational_mode, 'scanSAR')
-    Nsub = 10;  % Number of subswaths in scanSAR mode
+    Nsub = 8;  % Number of subswaths in scanSAR mode
 else
     Nsub = 1;
 end
