@@ -1,5 +1,5 @@
 # SSA_Payload_Systems
-Contains RF and Optical Payload tradespace exploration and sizing scripts, Debris Propagation Scripts...
-
-RF systems were defined by Harry Dawson
-Optical systems were define by Matteo Dodero
+Contains SAR Sizing Scripts (SAR Models)
+Contains Requirements Analysis Scripts (Requirements Analysis)
+Contains StripSAR specific Scripts (StripSAR)
+Contains Debris position and 3 Sigma Uncertanity Propagation (Debris_Covariance)
