@@ -13,7 +13,7 @@ clear; clc; close all;
 % Side looking geometry is used
 
 %% Choose operational mode: 'stripSAR' or 'scanSAR'
-operational_mode = 'stripSAR';
+operational_mode = 'scanSAR';
 if strcmpi(operational_mode, 'scanSAR')
     Nsub = 8;  % number of subswaths in scanSAR mode (must be >= 1)
 else
@@ -24,14 +24,15 @@ end
 antenna_width_vec = linspace(0.3, 5, 200);     % Antenna widths [m]
 range_vec         = linspace(10e3, 200e3, 200);  % Slant range values [m]
 res_along_vec     = 10e-2;                     % Azimuth resolution [m]
-FOV_limit = 5.5; %FOV limit for Herrick Gibbs
-Power_limit = 50*0.55; %Peak Power limit
+FOV_limit = 5.5; 
+eff = 0.55;
+Power_limit = 50*(1-eff); %Peak Power limit
 Power_target = 20; % 
 % Bandwidth vector (MHz converted to Hz)
 bandwidth_vec = [1, 10, 50, 80]*1e6;   % [Hz]
 look_angle = 20; %[deg] Minimise look angle to maximise SNR therefore revisit time
 % Peak Power vector [W]
-p_peak_vec =  22.5;  % watts
+p_peak_vec =  Power_limit;  % watts
 Lp = length(p_peak_vec);
 
 %% Fixed system parameters (other than power, which is now varied)
@@ -78,43 +79,50 @@ p_peak_store = zeros(N, Lr, M, K, Lp);
 prf_all      = nan(N, Lr, M, K, Lp);   % <-- New preallocation for PRF
 
 %% Compute Antenna Area (does not depend on range, bandwidth, or power)
+%For aach design combination obtain an antenna area based on the input dimensions and the minimum area constraint 
+
+
 for j = 1:Lr
     for i = 1:N
         for m = 1:M
-            D_AT = 2 * res_along_vec(m);                    % Azimuth dimension [m]
+            D_AT = 2 * res_along_vec(m);                    % Azimuth dimension [m] as defined in new SMAD Observation Payload Chapter
             A_phys_all(i,m) = antenna_width_vec(i) * D_AT;    % [m^2]
             beamwidth = (lambda/ antenna_width_vec(i))/2;     % half beamwidth
-            beamwidth = rad2deg(beamwidth);
+            beamwidth = rad2deg(beamwidth);                   % Convert to degrees
             R_val = range_vec(j);
-            R_val = R_val / cosd(beamwidth); % Slant Range
-            nu_1 = beamwidth;  % Frozen Design Condition: Look angle is half beamwidth 
-            incident_angle = incident_angledeg(Nsub, beamwidth, nu_1);
-            A_min = (4*v_rel*lambda*R_val)/c * tand(incident_angle);
-            if A_phys_all(i,m) < A_min
+            R_val = R_val / cosd(beamwidth);                  % Slant Range
+            nu_1 = beamwidth;                                     
+            incident_angle = incident_angledeg(Nsub, beamwidth, nu_1);  %Obtain the largest incidence angle - the look angle of the beam at the furthest 'subswath'
+            A_min = (4*v_rel*lambda*R_val)/c * tand(incident_angle);    % Minimum Area condition 
+            if A_phys_all(i,m) < A_min                                  % Minimum Area Condition feasibility constraint
                 A_phys_all(i,m) = NaN;
             end
         end
     end
 end
 
-%% Main Loop: Loop Over Power and Bandwidth Values
+%% Main Loop: Define the SNR, Mass, Data rate and Pulse compression ratio required for design point
+% Loop Over Power and Bandwidth vectors
 for l = 1:Lp
     p_peak_current = p_peak_vec(l);
     for k = 1:K
         bw = bandwidth_vec(k);
+        %Define Range resolution
         t_pulse = 1/bw;           % Transmitted pulse duration [s]
         Res_range = c*t_pulse/2;  % Uncompressed range resolution [m]
         
         % Pulse Compression Ratio required:
         CR_required = t_pulse / T_min;
         
+        %Loop over Antenna width and Azimuth Resolution Required
         for i = 1:N
             for m = 1:M
                 % For each range value, store current p_peak
                 for j = 1:Lr
                     p_peak_store(i,j,m,k,l) = p_peak_current;
                 end
-                
+                % For every Range value in the range vector calculate the
+                % beamwidth and incidence angle
                 for j = 1:Lr
                     R_val = range_vec(j);
                     beamwidth = (lambda/ antenna_width_vec(i))/2;
@@ -123,8 +131,8 @@ for l = 1:Lp
                         continue
                     end
                     nu_1 = look_angle;  % side-looking geometry definition 
-                    incident_angle = incident_angledeg(Nsub, beamwidth, nu_1);
-                    if incident_angle > 90
+                    incident_angle = incident_angledeg(Nsub, beamwidth, nu_1); %Find largest incidence angle based on subswaths
+                    if incident_angle > 90 %Beam pointing 90 degrees useless.
                         continue
                     end
     
@@ -133,18 +141,17 @@ for l = 1:Lp
                     R_slant_total = 0; 
                     for t = 1:Nsub
                         incident_angle = incident_angledeg(t, beamwidth, nu_1);
-                        if incident_angle > 90
+                        if incident_angle > 90      %Beam pointing 90 degrees useless.
                             continue
                         end
-                        R_slant = R_val/cosd(incident_angle);
-                        graz_ang = 90 - incident_angle;
-                        SW_strip = lambda * R_sWslant / (antenna_width_vec(i)*sind(graz_ang)); % SMAD p.508
-                        SW = SW + SW_strip;
-                        R_slant_total = R_slant_total + R_slant;
+                        R_slant = R_val/cosd(incident_angle);   %Find Maximum Slant Range
+                        graz_ang = 90 - incident_angle;         %Find Graze angle
+                        SW_strip = lambda * R_slant / (antenna_width_vec(i)*sind(graz_ang)); % Find SW of the 'combined' swath - where a swath is the sum of the subswaths. SMAD p.508
+                        SW = SW + SW_strip;                     %Store SW
+                        R_slant_total = R_slant_total + R_slant; %Store Slant Range
                     end
-                    R_slant = R_slant_total/Nsub;  % Effective Slant Range
+                    R_slant = R_slant_total/Nsub;  % Mean Slant Range for SNR calcualtion
 
-                    % In scanSAR mode, total swath is expanded over Nsub subswaths:
                     SW_all(i,j,m,k,l) = SW;
                     
                     % Determine PRF using bounds (per-subswath in scanSAR)
@@ -158,10 +165,10 @@ for l = 1:Lp
                     % Store PRF value
                     prf_all(i,j,m,k,l) = prf;
                     
-                    t_swath = 2*SW/c;  % swath dwell time
+                    t_swath = 2*SW/c;                   % Swath dwell time defined by Golkar
                     bw_used_all(i,j,m,k,l) = bw;
                     
-                    if PRF_max < PRF_min_local
+                    if PRF_max < PRF_min_local          %PRF Feasibility Filter
                         NESZ_all(i,j,m,k,l) = NaN;
                         data_rate_all(i,j,m,k,l) = NaN;
                         mass_all(i,j,m,k,l) = NaN;
@@ -169,30 +176,32 @@ for l = 1:Lp
                         CR_all(i,j,m,k,l) = NaN;
                     else
                         % In scanSAR, each subswath receives pulses only every Nsub-th pulse:
-                        duty = t_pulse * prf;
-                        P_avg = duty * p_peak_current;
+                        duty = t_pulse * prf;           %Define Duty Cycle
+                        P_avg = duty * p_peak_current; 
                         
                         % Compute azimuth gain (reduced by sqrt(Nsub) for scanSAR)
                         azGain = sarazgain(R_slant, lambda, v_rel, res_along_vec, prf);
                         
                         FilterGain = t_pulse*bw;
-                        % Compute NESZ (Noise Equivalent Sigma Zero)
+                        % Compute NESZ (Noise Equivalent Sigma Zero) Golkar
+        
                         NESZ_all(i,j,m,k,l) = 10*log10( ...
                             (2*v_rel * (4*pi*R_slant)^3 * boltz_const * T_sys * receiver_noise * L_sys) ...
                             / (P_avg * FilterGain * azGain * ...
                             (eff_trans * 4*pi * 0.7 * A_phys_all(i,m)/(lambda^2))^2 * lambda^3 * Res_range) );
                         
-                        % Compute SNR (in dB) from NESZ
+                        % Compute SNR (in dB) from NESZ assuming circular
+                        % RCS - Assume debris is a spheroid.
                         SNR_dB_all(i,j,m,k,l) = 10*log10(pi*(10e-2)^2) - NESZ_all(i,j,m,k,l);
                         % Further reduce SNR in scanSAR mode (shorter dwell penalty)
                         if Nsub > 1
                             SNR_dB_all(i,j,m,k,l) = SNR_dB_all(i,j,m,k,l) - 10*log10(Nsub);
                         end
                         
-                        % Data rate calculation
+                        % Data rate calculation (Golkar)
                         data_rate_all(i,j,m,k,l) = 2 * bw * quantisation_bits * t_swath * prf * duty;
                         
-                        % Mass estimation (example formula)
+                        % Mass estimation (Golkar)
                         mass_all(i,j,m,k,l) = 20.5044 * antenna_width_vec(i) * (2*res_along_vec(m));
                         
                         % Pulse compression ratio
@@ -223,13 +232,13 @@ antennaLength_vecStore = 2 * resAlong_vecStore;
 %% Compute SNR in Linear and the Uncertainty (sigma)
 SNR_linear = 10.^(SNR_vec/10);
 sigma_r = c ./ (2 .* bw_vec_store .* sqrt(2 .* SNR_linear));
-beamwidth = lambda./(1.74);  % Synthetic aperture beamwidth
+beamwidth = lambda./(1.74);               % Synthetic aperture beamwidth. 1.74 is the antenna dimension SMAD p.508
 sigma_ang = beamwidth./(1.6*sqrt(2.*SNR_linear));
 sigma = (sigma_r + sigma_ang)/2;          % average uncertainty
 
 %% Compute Field-of-View (FOV) 
 x = Range_vec*tand(look_angle);  % missed ground
-FOV = atand((x+(SW_vec/2))./Range_vec) - look_angle;%Half cone FOV in Degrees
+FOV = atand((x+(SW_vec/2))./Range_vec) - look_angle; %Half cone FOV in Degrees
 
 %% Define Feasible Designs
 feasibleIdx = ~isnan(SNR_vec) & (SNR_vec > 7); % define SNR limit 
